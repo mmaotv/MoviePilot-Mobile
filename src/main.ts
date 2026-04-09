@@ -1,3 +1,6 @@
+// 0. Capacitor 初始化（必须在最前面）
+import { initCapacitor } from './utils/capacitor'
+
 // 1. 配置与兼容性
 import './ace-config'
 import '@/@core/utils/compatibility'
@@ -52,6 +55,11 @@ import { sseManagerSingleton } from '@/utils/sseManager'
 
 // 创建Vue实例
 const app = createApp(App)
+
+// 初始化 Capacitor（非阻塞）
+initCapacitor().catch(error => {
+  console.error('Failed to initialize Capacitor:', error)
+})
 
 // 1. 注册pinia
 app.use(pinia)

@@ -13,7 +13,13 @@
     "lint": "eslint . -c .eslintrc.js --fix --ext .ts,.js,.vue,.tsx,.jsx",
     "build:icons": "tsc -b src/@iconify && node src/@iconify/build-icons.js",
     "postinstall": "npm run build:icons",
-    "pkg": "pkg . -t node18-win-x64 -o MoviePilot-Frontend.exe"
+    "pkg": "pkg . -t node18-win-x64 -o MoviePilot-Frontend.exe",
+    "mobile:sync": "npx cap sync android",
+    "mobile:open": "npx cap open android",
+    "mobile:run": "npx cap run android",
+    "mobile:livereload": "npx cap run android -l --external",
+    "mobile:build:apk": "npm run build && npx cap sync android && cd android && gradlew.bat assembleRelease",
+    "mobile:build:aab": "npm run build && npx cap sync android && cd android && gradlew.bat bundleRelease"
   },
   "pkg": {
     "assets": [
@@ -21,6 +27,7 @@
     ]
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.0",
     "@fullcalendar/core": "^6.1.15",
     "@fullcalendar/daygrid": "^6.1.15",
     "@fullcalendar/interaction": "^6.1.15",
@@ -72,6 +79,8 @@
     "webfontloader": "^1.6.28"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
     "@iconify-json/line-md": "^1.2.13",
     "@iconify-json/lucide": "^1.2.85",
     "@iconify-json/material-symbols": "^1.2.51",

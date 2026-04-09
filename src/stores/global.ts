@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import type { globalSettingsState } from '@/stores/types'
 import { fetchGlobalSettings } from '@/utils/globalSetting'
-import { useVersionChecker } from '@/composables/useVersionChecker'
 import api from '@/api'
 
 export const useGlobalSettingsStore = defineStore('globalSettings', {
@@ -23,11 +22,13 @@ export const useGlobalSettingsStore = defineStore('globalSettings', {
 
         // 检查版本更新
         if (result.FRONTEND_VERSION) {
-          const { checkVersion } = useVersionChecker()
+          const { checkVersion } = await import('@/composables/useVersionChecker')
           await checkVersion(result.FRONTEND_VERSION)
         }
       } catch (error) {
         console.error('Failed to initialize global settings', error)
+        // 即使失败也标记为已初始化，避免无限加载
+        this.initialized = true
       } finally {
         this.loading = false
       }

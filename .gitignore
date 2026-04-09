@@ -35,3 +35,19 @@ package-lock.json
 # iconify dist files
 src/@iconify/*.js
 public/plugin_icon/**
+
+# Capacitor (Android only)
+android/app/build/
+android/.gradle/
+android/.idea/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+*.hprof
+
+# 原生 IDE
+*.iml
+.DS_Store

@@ -245,6 +245,10 @@ export default {
   },
   login: {
     wallpapers: '壁纸',
+    serverUrl: '服务器地址',
+    serverHistory: '最近使用的服务器',
+    serverUrlRequired: '请输入服务器地址',
+    credentialsRequired: '请输入用户名和密码',
     username: '用户名',
     password: '密码',
     otpCode: '验证码',

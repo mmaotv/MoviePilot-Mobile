@@ -28,6 +28,7 @@ const navMenus = computed(() => getNavMenus(t))
 
 // 表单
 const form = ref({
+  serverUrl: '',
   username: '',
   password: '',
   otp_password: '',
@@ -35,6 +36,29 @@ const form = ref({
 })
 
 const refForm = ref<InstanceType<typeof VForm> | null>(null)
+
+// 服务器 URL 编辑模式
+const isEditingServer = ref(false)
+
+// 自动识别协议前缀
+// 规则：用户输入包含 443、8443 端口，或明确包含 "https" 字样，则识别为 https
+const detectedProtocol = computed(() => {
+  const val = form.value.serverUrl.trim()
+  if (!val) return 'http://'
+  // 已手动输入了协议前缀的情况
+  if (val.startsWith('https://')) return 'https://'
+  if (val.startsWith('http://')) return 'http://'
+  // 根据端口自动判断：443 / 8443 默认 https
+  const portMatch = val.match(/:(\d+)/)
+  if (portMatch) {
+    const port = parseInt(portMatch[1])
+    if (port === 443 || port === 8443) return 'https://'
+  }
+  return 'http://'
+})
+
+// 保存的服务器列表
+const savedServers = ref<string[]>([])
 
 // 密码输入
 const isPasswordVisible = ref(false)
@@ -383,10 +407,43 @@ async function handleLoginSuccess(response: any) {
 async function login() {
   errorMessage.value = ''
 
-  // 进行表单校验
-  if (!form.value.username || !form.value.password) {
+  // 校验服务器地址
+  if (!form.value.serverUrl) {
+    errorMessage.value = t('login.serverUrlRequired')
     return
   }
+
+  // 进行表单校验
+  if (!form.value.username || !form.value.password) {
+    errorMessage.value = t('login.credentialsRequired')
+    return
+  }
+
+  // 保存服务器地址（保存时补全完整 URL 存入历史）
+  const rawInput = form.value.serverUrl.trim().replace(/\/$/, '')
+  // 如果用户没有手动输入协议，使用自动识别的协议
+  const fullServerUrl = rawInput.startsWith('http://') || rawInput.startsWith('https://')
+    ? rawInput
+    : detectedProtocol.value + rawInput
+  saveServerUrl(fullServerUrl)
+
+  // 设置 API baseURL
+  let serverUrl = fullServerUrl
+  // 确保以 /api/v1 结尾（不带尾部斜杠）
+  if (!serverUrl.endsWith('/api/v1')) {
+    serverUrl = serverUrl + '/api/v1'
+  }
+  
+  // 更新 axios 配置
+  api.defaults.baseURL = serverUrl
+  
+  // 调试日志 - 显示完整的请求 URL
+  console.log('[Login] Server URL:', form.value.serverUrl)
+  console.log('[Login] API baseURL:', serverUrl)
+  console.log('[Login] Full request URL will be:', serverUrl + '/login/access-token')
+  
+  // 允许 cleartext HTTP 流量（开发/内网使用）
+  // 注意：这在 AndroidManifest.xml 中也需要配置
 
   // 登录按钮 loading
   loading.value = true
@@ -399,6 +456,8 @@ async function login() {
     formData.append('password', form.value.password)
     formData.append('otp_password', form.value.otp_password)
 
+    console.log('[Login] Sending request to:', api.defaults.baseURL + '/login/access-token')
+    
     // 请求token
     const response: any = await api.post('/login/access-token', formData, {
       headers: {
@@ -406,11 +465,22 @@ async function login() {
       },
     })
 
+    console.log('[Login] Response received:', response ? 'success' : 'empty')
     await handleLoginSuccess(response)
   } catch (error: any) {
+    console.error('Login error:', error)
+    
     // 登录失败，显示错误提示
     if (!error.response) {
-      errorMessage.value = t('login.networkError')
+      // 更详细的网络错误信息
+      const errorMsg = error.message || ''
+      if (errorMsg.includes('Network Error') || errorMsg.includes('ERR_NETWORK')) {
+        errorMessage.value = `无法连接到服务器\n请检查：\n1. 服务器地址是否正确\n2. 服务器是否正在运行\n3. 手机和服务器是否在同一网络\n4. 防火墙是否阻止连接\n\n当前地址: ${serverUrl}`
+      } else if (errorMsg.includes('timeout')) {
+        errorMessage.value = '连接超时，请检查网络或服务器状态'
+      } else {
+        errorMessage.value = `网络连接失败: ${errorMsg}\n服务器: ${serverUrl}`
+      }
       return
     }
 
@@ -425,18 +495,21 @@ async function login() {
           return
         }
         // 不需要MFA或已填写OTP但认证失败
-        errorMessage.value = t('login.authFailure')
+        errorMessage.value = t('login.authFailure') || '用户名或密码错误'
         // 认证失败后清空OTP密码，防止下次点击不弹出对话框
         form.value.otp_password = ''
         break
       case 403:
-        errorMessage.value = t('login.permissionDenied')
+        errorMessage.value = t('login.permissionDenied') || '访问被拒绝'
+        break
+      case 404:
+        errorMessage.value = `API 端点未找到\n请确认服务器地址正确\n当前: ${serverUrl}/login/access-token`
         break
       case 500:
-        errorMessage.value = t('login.serverError')
+        errorMessage.value = t('login.serverError') || '服务器内部错误'
         break
       default:
-        errorMessage.value = `${t('login.authFailure')} (Status: ${error.response.status})`
+        errorMessage.value = `登录失败 (Status: ${error.response.status})\n${error.response.data?.detail || ''}`
     }
   } finally {
     loading.value = false
@@ -476,9 +549,69 @@ onMounted(async () => {
     return
   }
 
+  // 加载保存的服务器列表
+  loadSavedServers()
+
   // 初始化 Conditional UI 的 PassKey 自动填充
   await initConditionalPasskey()
 })
+
+// 加载保存的服务器列表
+function loadSavedServers() {
+  try {
+    const saved = localStorage.getItem('moviepilot_servers')
+    if (saved) {
+      savedServers.value = JSON.parse(saved)
+    }
+  } catch (e) {
+    console.error('Failed to load saved servers:', e)
+  }
+
+  // 如果有保存的服务器，使用最后一个（去掉协议前缀显示）
+  if (savedServers.value.length > 0) {
+    form.value.serverUrl = stripProtocol(savedServers.value[savedServers.value.length - 1])
+  } else {
+    // 默认值（去掉前缀）
+    const defaultUrl = import.meta.env.VITE_API_BASE_URL || ''
+    form.value.serverUrl = stripProtocol(defaultUrl)
+  }
+}
+
+// 去掉 URL 协议前缀的工具函数
+function stripProtocol(url: string): string {
+  return url.replace(/^https?:\/\//, '')
+}
+
+// 保存服务器地址（入参已是完整 URL，含协议前缀）
+function saveServerUrl(url: string) {
+  if (!url) return
+
+  // 规范化 URL（去尾部斜杠）
+  url = url.replace(/\/$/, '')
+
+  // 添加到列表（去重）
+  if (!savedServers.value.includes(url)) {
+    savedServers.value.push(url)
+    // 最多保存 5 个
+    if (savedServers.value.length > 5) {
+      savedServers.value.shift()
+    }
+    localStorage.setItem('moviepilot_servers', JSON.stringify(savedServers.value))
+  }
+}
+
+// 选择服务器
+function selectServer(url: string) {
+  form.value.serverUrl = stripProtocol(url)
+  isEditingServer.value = false
+}
+
+// 清除服务器历史
+function clearServerHistory() {
+  savedServers.value = []
+  localStorage.removeItem('moviepilot_servers')
+  form.value.serverUrl = ''
+}
 
 // 初始化 Conditional UI 的 PassKey 自动填充
 async function initConditionalPasskey() {
@@ -573,6 +706,53 @@ onUnmounted(() => {
         <VCardText>
           <VForm ref="refForm" autocomplete="on" @submit.prevent="login">
             <VRow>
+              <!-- 服务器地址 -->
+              <VCol cols="12">
+                <VTextField
+                  v-model="form.serverUrl"
+                  :label="t('login.serverUrl')"
+                  placeholder="192.168.1.100:3001"
+                  type="text"
+                  name="serverUrl"
+                  id="serverUrl"
+                  prepend-inner-icon="mdi-server"
+                  :prefix="detectedProtocol"
+                  :append-inner-icon="savedServers.length > 0 ? 'mdi-history' : undefined"
+                  hide-details
+                  @click:append-inner="isEditingServer = !isEditingServer"
+                />
+                <!-- 服务器历史下拉列表 -->
+                <VMenu
+                  v-if="savedServers.length > 0 && isEditingServer"
+                  v-model="isEditingServer"
+                  :close-on-content-click="false"
+                  offset="5"
+                >
+                  <VCard max-width="350">
+                    <VList>
+                      <VListSubheader class="d-flex justify-space-between align-center">
+                        <span>{{ t('login.serverHistory') }}</span>
+                        <VBtn size="x-small" variant="text" color="error" @click="clearServerHistory">
+                          {{ t('common.clear') }}
+                        </VBtn>
+                      </VListSubheader>
+                      <VDivider />
+                      <VListItem
+                        v-for="(url, index) in savedServers"
+                        :key="index"
+                        :value="url"
+                        @click="selectServer(url)"
+                      >
+                        <template #prepend>
+                          <VIcon icon="mdi-server" size="small" />
+                        </template>
+                        <VListItemTitle class="text-caption">{{ url }}</VListItemTitle>
+                      </VListItem>
+                    </VList>
+                  </VCard>
+                </VMenu>
+              </VCol>
+
               <!-- username -->
               <VCol cols="12">
                 <VTextField
@@ -583,6 +763,7 @@ onUnmounted(() => {
                   name="username"
                   id="username"
                   autocomplete="username"
+                  prepend-inner-icon="mdi-account"
                   :rules="[requiredValidator]"
                   hide-details
                 />
@@ -596,6 +777,7 @@ onUnmounted(() => {
                   name="password"
                   id="password"
                   autocomplete="current-password"
+                  prepend-inner-icon="mdi-lock"
                   :append-inner-icon="isPasswordVisible ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
                   :rules="[requiredValidator]"
                   hide-details
@@ -749,5 +931,14 @@ onUnmounted(() => {
   .passkey-btn.v-btn--variant-outlined {
     color: rgb(86, 170, 0) !important;
   }
+}
+
+.protocol-prefix {
+  white-space: nowrap;
+  user-select: none;
+  opacity: 0.7;
+  font-size: 0.75rem;
+  line-height: 1;
+  margin-inline-end: 2px;
 }
 </style>

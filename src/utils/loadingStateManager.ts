@@ -30,20 +30,26 @@ export class PWALoadingStateManager {
   }
 
   /**
-   * 等待所有加载完成
+   * 等待所有加载完成（带超时保护）
    */
-  waitForAllComplete(): Promise<void> {
-    return new Promise((resolve) => {
+  waitForAllComplete(timeoutMs = 15000): Promise<void> {
+    return new Promise((resolve, reject) => {
       if (!this.isAnyLoading()) {
         resolve()
         return
       }
 
+      // 超时保护 - 防止无限转圈
+      const timeout = setTimeout(() => {
+        console.warn('[LoadingStateManager] Timeout waiting for loading states to complete:', this.getLoadingStates())
+        reject(new Error('Loading timeout'))
+      }, timeoutMs)
+
       const checkComplete = () => {
         if (!this.isAnyLoading()) {
+          clearTimeout(timeout)
           resolve()
         } else {
-          // 检查间隔
           setTimeout(checkComplete, 50)
         }
       }

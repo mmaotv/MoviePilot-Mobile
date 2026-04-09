@@ -245,6 +245,10 @@ export default {
   },
   login: {
     wallpapers: '壁紙',
+    serverUrl: '伺服器地址',
+    serverHistory: '最近使用的伺服器',
+    serverUrlRequired: '請輸入伺服器地址',
+    credentialsRequired: '請輸入用戶名和密碼',
     username: '用戶名',
     password: '密碼',
     otpCode: '驗證碼',

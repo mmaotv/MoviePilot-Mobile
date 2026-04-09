@@ -9,6 +9,34 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
 })
 
+// 初始化时恢复上次使用的服务器地址
+function restoreServerUrl() {
+  try {
+    const saved = localStorage.getItem('moviepilot_servers')
+    if (saved) {
+      const servers = JSON.parse(saved)
+      if (servers && servers.length > 0) {
+        let serverUrl = servers[servers.length - 1]
+        // 规范化 URL
+        serverUrl = serverUrl.replace(/\/$/, '')
+        if (!serverUrl.startsWith('http://') && !serverUrl.startsWith('https://')) {
+          serverUrl = 'http://' + serverUrl
+        }
+        if (!serverUrl.endsWith('/api/v1')) {
+          serverUrl = serverUrl + '/api/v1'
+        }
+        api.defaults.baseURL = serverUrl
+        console.log('[API] Restored server URL:', serverUrl)
+      }
+    }
+  } catch (e) {
+    console.warn('[API] Failed to restore server URL:', e)
+  }
+}
+
+// 执行恢复
+restoreServerUrl()
+
 // 声明全局变量类型
 declare global {
   interface Window {

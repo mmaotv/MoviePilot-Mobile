@@ -215,6 +215,29 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 5000,
     cssCodeSplit: false,
+    rollupOptions: {
+      external: [
+        '@capacitor/core',
+        '@capacitor/status-bar',
+        '@capacitor/splash-screen',
+        '@capacitor/app',
+        '@capacitor/keyboard',
+        '@capacitor/preferences',
+        '@capacitor/push-notifications',
+        '@capacitor/haptics',
+        '@capacitor/app-launcher',
+      ],
+      output: {
+        globals: {
+          '@capacitor/core': 'Capacitor',
+          '@capacitor/status-bar': 'StatusBar',
+          '@capacitor/splash-screen': 'SplashScreen',
+          '@capacitor/app': 'App',
+          '@capacitor/keyboard': 'Keyboard',
+          '@capacitor/preferences': 'Preferences',
+        },
+      },
+    },
   },
   optimizeDeps: {
     exclude: ['vuetify'],

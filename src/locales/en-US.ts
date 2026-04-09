@@ -246,6 +246,10 @@ export default {
   },
   login: {
     wallpapers: 'Wallpapers',
+    serverUrl: 'Server Address',
+    serverHistory: 'Recently Used Servers',
+    serverUrlRequired: 'Please enter server address',
+    credentialsRequired: 'Please enter username and password',
     username: 'Username',
     password: 'Password',
     otpCode: 'Verification Code',
