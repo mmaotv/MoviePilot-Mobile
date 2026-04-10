@@ -577,9 +577,9 @@ function loadSavedServers() {
   }
 }
 
-// 去掉 URL 协议前缀的工具函数
+// 去掉 URL 协议前缀和 API 路径的工具函数
 function stripProtocol(url: string): string {
-  return url.replace(/^https?:\/\//, '')
+  return url.replace(/^https?:\/\//, '').replace(/\/api\/v1\/?$/, '')
 }
 
 // 保存服务器地址（入参已是完整 URL，含协议前缀）
