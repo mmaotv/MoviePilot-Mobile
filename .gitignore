@@ -47,6 +47,18 @@ android/.idea/
 *.mobileprovision
 *.orig.*
 *.hprof
+*.keystore
+*.idsig
+
+# APK files
+*.apk
+!MoviePilot-*.apk
+
+# 签名文件（永远不要上传）
+android/*.keystore
+android/*.jks
+android/app/release/
+android/app/debug/
 
 # 原生 IDE
 *.iml
