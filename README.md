@@ -1,60 +1,134 @@
-# MoviePilot-Frontend
+# MoviePilot Mobile
 
-*中文 | [English](README_EN.md)*
+MoviePilot 智能影视媒体库管理工具的移动端应用。
 
-[MoviePilot](https://github.com/jxxghp/MoviePilot) 的前端项目，NodeJS版本：>= `v20.12.1`。
+## 简介
+
+本项目是基于 [MoviePilot](https://github.com/jxxghp/MoviePilot) 前端项目的移动端适配版本，使用 Capacitor 构建 Android APK，同时支持 PWA 和 Web 访问。
 
 ## 特性
 
-- 基于 Vue 3 和 Vuetify 3 构建的现代化界面
-- 使用 Vite 作为构建工具，提供快速的开发体验
-- 支持多语言（中文/英文）
-- 完整的插件系统支持，包括远程组件动态加载
+- 📱 **移动端原生体验** - 基于 Capacitor 8 构建 Android 应用
+- 🌐 **多平台支持** - Android APK / PWA / Web 三端统一
+- 🎨 **现代化界面** - Vue 3 + Vuetify 3 构建的响应式 UI
+- 🌍 **多语言支持** - 简体中文 / 繁体中文 / 英文
+- ⚡ **智能服务器识别** - 自动识别 HTTP/HTTPS 协议，简化服务器配置
+- 🔄 **后台任务管理** - 智能处理后台 SSE 连接和定时器
+- 💾 **离线状态检测** - 自动检测网络状态并提示
 
-## 模块联邦功能
+## 技术栈
 
-MoviePilot 现已支持模块联邦（Module Federation）功能，允许插件开发者创建可动态加载的远程组件，实现更丰富的插件用户界面。
+| 技术 | 版本 |
+|------|------|
+| Vue | 3.x |
+| Vuetify | 3.7.3 |
+| TypeScript | 5.x |
+| Vite | 5.x |
+| Capacitor | 8.x |
+| Pinia | 2.x |
+| TailwindCSS | 3.x |
 
-### 相关文档
+## 快速开始
 
-- [模块联邦开发指南](docs/module-federation-guide.md) - 如何开发远程组件插件
-- [模块联邦问题排查指南](docs/federation-troubleshooting.md) - 常见问题和解决方案
-- [插件远程组件示例](examples/plugin-component/) - 开发插件组件的完整示例项目 
+### 环境要求
 
-## 开发部署
+- Node.js >= v20.12.1
+- Yarn 或 npm
+- Android Studio（用于构建 APK）
+- Java JDK 17+
 
-### 推荐的IDE设置
-
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=johnsoncodehk.volar) (并禁用 Vetur).
-
-### 配置Vite
-
-请参阅 [Vite 配置参考](https://vitejs.dev/config/).
-
-### 依赖安装
+### 安装依赖
 
 ```sh
-yarn
+yarn install
 ```
 
 ### 开发运行
 
 ```sh
+# Web 开发模式
 yarn dev
+
+# 同步到 Android 项目
+npx cap sync android
+
+# 打开 Android Studio
+npx cap open android
 ```
 
-### 编译打包
+### 构建 APK
 
 ```sh
+# 构建 Web 资源
 yarn build
+
+# 同步到 Android
+npx cap sync android
+
+# 构建 Release APK
+cd android
+./gradlew assembleRelease
 ```
 
-### 静态运行
+构建完成的 APK 位于：`android/app/build/outputs/apk/release/app-release.apk`
 
-1. 使用 `nginx` 等Web服务器托管 `dist` 静态文件，nginx配置参考 `public/nginx.conf`。
+## 移动端适配说明
 
-2. 使用 `node` 命令直接运行`service.js`，默认监听 `3000` 端口，设置环境变量 `NGINX_PORT` 来调整运行端口。
+### 服务器地址输入优化
 
-```shell
-node dist/service.js
+- 输入框只需填写域名或 IP + 端口（如 `192.168.1.100:3001`）
+- 自动识别协议：443/8443 端口使用 HTTPS，其他使用 HTTP
+- 协议前缀实时显示在输入框前，无需手动输入
+
+### 移动端特性
+
+- **后台管理**：应用进入后台 5 秒后自动断开 SSE，返回前台自动重连
+- **键盘适配**：自动调整布局避免键盘遮挡输入框
+- **返回键处理**：Android 返回键智能处理页面导航
+- **离线检测**：连续 3 次网络错误触发离线模式提示
+
+## 项目结构
+
 ```
+MoviePilot-Mobile/
+├── android/              # Capacitor Android 项目
+├── src/
+│   ├── api/             # API 接口和 Axios 配置
+│   ├── components/      # Vue 组件
+│   │   └── cards/       # 卡片组件
+│   ├── composables/     # 组合式函数
+│   ├── layouts/         # 布局组件
+│   ├── locales/         # i18n 语言文件
+│   ├── pages/           # 路由页面
+│   ├── stores/          # Pinia 状态管理
+│   ├── styles/          # 全局样式
+│   ├── utils/           # 工具函数
+│   │   ├── capacitor.ts       # Capacitor 桥接
+│   │   ├── backgroundManager.ts  # 后台管理
+│   │   ├── sseManager.ts    # SSE 连接管理
+│   │   └── themeManager.ts  # 主题管理
+│   └── views/           # 功能模块视图
+├── capacitor.config.json # Capacitor 配置
+├── vite.config.ts       # Vite 配置
+└── package.json         # 项目依赖
+```
+
+## 下载安装
+
+从 [Releases](https://github.com/mmaotv/MoviePilot-Mobile/releases) 页面下载最新版 APK。
+
+### 安装步骤
+
+1. 下载 `MoviePilot-v2.9.27.apk`
+2. 在 Android 设备上允许安装未知来源应用
+3. 安装 APK
+4. 首次打开输入 MoviePilot 服务器地址即可使用
+
+## 相关项目
+
+- [MoviePilot](https://github.com/jxxghp/MoviePilot) - 后端服务
+- [MoviePilot-Frontend](https://github.com/jxxghp/MoviePilot-Frontend) - 原前端项目
+
+## 许可证
+
+MIT License
