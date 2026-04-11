@@ -571,14 +571,14 @@ function loadSavedServers() {
   if (savedServers.value.length > 0) {
     form.value.serverUrl = stripProtocol(savedServers.value[savedServers.value.length - 1])
   } else {
-    // 默认值（去掉前缀）
-    const defaultUrl = import.meta.env.VITE_API_BASE_URL || ''
-    form.value.serverUrl = stripProtocol(defaultUrl)
+    // 默认值为空，不显示任何内容
+    form.value.serverUrl = ''
   }
 }
 
 // 去掉 URL 协议前缀和 API 路径的工具函数
 function stripProtocol(url: string): string {
+  if (!url) return ''
   return url.replace(/^https?:\/\//, '').replace(/\/api\/v1\/?$/, '')
 }
 

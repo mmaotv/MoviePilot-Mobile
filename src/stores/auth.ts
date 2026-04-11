@@ -6,6 +6,7 @@ export const useAuthStore = defineStore('auth', {
     token: null,
     remember: false,
     originalPath: null,
+    isServerChecked: false,
   }),
 
   // 全局持久化
@@ -31,6 +32,7 @@ export const useAuthStore = defineStore('auth', {
     logout() {
       this.clearToken()
       this.setOriginalPath(null)
+      this.isServerChecked = false
     },
   },
 

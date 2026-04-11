@@ -88,6 +88,18 @@ api.interceptors.response.use(
         }
         // 记录网络错误，只有连续三次才会设置为离线模式
         globalOfflineStatus.recordNetworkError(reason)
+
+        // 检查是否是服务器连接问题（首次加载时）
+        const authStore = useAuthStore()
+        if (authStore.token && !authStore.isServerChecked) {
+          // 标记服务器检查失败，避免无限循环
+          authStore.isServerChecked = true
+          // 清除登录状态
+          authStore.logout()
+          // 跳转到登录页并提示用户
+          router.push('/login')
+          return Promise.reject(new Error('无法连接到服务器，请检查服务器地址'))
+        }
       }
 
       if (error.code === 'NETWORK_ERROR' || error.code === 'ERR_NETWORK') {

@@ -21,7 +21,7 @@
     "mobile:livereload": "npx cap run android -l --external",
     "mobile:build:apk": "npm run build && npx cap sync android && cd android && gradlew.bat assembleRelease",
     "mobile:build:aab": "npm run build && npx cap sync android && cd android && gradlew.bat bundleRelease",
-    "build:apk": "powershell -ExecutionPolicy Bypass -File .\scripts\build-apk.ps1",
+    "build:apk": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-apk.ps1",
     "build:apk:bash": "bash ./scripts/build-apk.sh"
   },
   "pkg": {

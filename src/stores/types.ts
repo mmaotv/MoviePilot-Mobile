@@ -5,6 +5,8 @@ export interface authState {
   remember: boolean
   // 原始路径
   originalPath?: string | null
+  // 服务器连接检查标记（用于避免重复跳转）
+  isServerChecked?: boolean
 }
 
 export interface userState {

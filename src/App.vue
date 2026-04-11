@@ -198,6 +198,23 @@ async function removeLoadingWithStateCheck() {
           await globalSettingsStore.loadUserSettings()
         }
         globalLoadingStateManager.setLoadingState('global-settings', false)
+      }).catch(error => {
+        // 初始化失败，可能是服务器连接问题
+        console.error('[App] Global settings initialization failed:', error)
+        // 如果已登录但无法连接服务器，清除登录状态并跳转到登录页
+        if (isLogin.value) {
+          console.warn('[App] Server connection failed, logging out and redirecting to login')
+          authStore.logout()
+          // 显示错误提示（使用 toast 或 alert）
+          if (typeof window !== 'undefined') {
+            // 延迟显示，等待页面加载完成
+            setTimeout(() => {
+              alert('无法连接到服务器，请检查服务器地址是否正确')
+            }, 500)
+          }
+        }
+        globalLoadingStateManager.setLoadingState('global-settings', false)
+        throw error
       }),
       new Promise(resolve => {
         setTimeout(() => {
