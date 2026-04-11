@@ -28,6 +28,12 @@ const { appMode } = usePWA()
 const { t } = useI18n()
 const route = useRoute()
 
+// 强制重新渲染标志，解决移动端顶部栏初始不显示问题
+const layoutKey = ref(0)
+const forceRerender = () => {
+  layoutKey.value++
+}
+
 // 用户 Store
 const userStore = useUserStore()
 
@@ -252,6 +258,13 @@ onMounted(() => {
       navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
     }
   })
+
+  // 延迟强制重新渲染，解决移动端顶部栏初始不显示问题
+  nextTick(() => {
+    setTimeout(() => {
+      forceRerender()
+    }, 100)
+  })
 })
 </script>
 
@@ -283,7 +296,7 @@ onMounted(() => {
       />
     </div>
   </div>
-  <VerticalNavLayout :style="{ '--navbar-tab-height': showDynamicHeaderTab ? '2.5rem' : '0px' }">
+  <VerticalNavLayout :key="layoutKey" :style="{ '--navbar-tab-height': showDynamicHeaderTab ? '2.5rem' : '0px' }">
     <!-- 👉 Navbar -->
     <template #navbar="{ toggleVerticalOverlayNavActive }">
       <div class="d-flex h-14 align-center mx-1">
