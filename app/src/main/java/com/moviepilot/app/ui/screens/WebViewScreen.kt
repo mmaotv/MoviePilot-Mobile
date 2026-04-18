@@ -22,11 +22,11 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.moviepilot.app.data.network.ApiClient
 import com.moviepilot.app.data.network.LocalAssetInterceptor
-import com.moviepilot.app.ui.viewmodel.AuthViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 /**
  * 通用 WebView 页面，嵌入展示 MoviePilot PWA/Web 界面
@@ -57,8 +57,7 @@ val WebViewScrollNestedConnection = object : NestedScrollConnection {
 @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
 @Composable
 fun rememberWebView(
-    onConnectionLost: (() -> Unit)? = null,
-    authViewModel: AuthViewModel = hiltViewModel()
+    onConnectionLost: (() -> Unit)? = null
 ): Triple<WebView?, (String) -> Unit, (String) -> Unit> {
     val context = androidx.compose.ui.platform.LocalContext.current
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -74,17 +73,22 @@ fun rememberWebView(
 
     val CONNECTION_TIMEOUT_MS = 5_000L
 
-    // 超时检测协程
+    // 超时检测协程（使用安全协程，不依赖 ViewModel）
+    val scope = rememberCoroutineScope()
+    var timeoutJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     LaunchedEffect(loadStartTime) {
         if (loadStartTime > 0) {
             isPageLoaded = false
             hasLoadError = false
             timeoutNotified = false
-            delay(CONNECTION_TIMEOUT_MS)
-            if (!isPageLoaded && !hasLoadError && !timeoutNotified) {
-                timeoutNotified = true
-                authViewModel.notifyConnectionLost("连接服务器超时，请检查网络或服务器地址")
-                onConnectionLost?.invoke()
+            timeoutJob?.cancel()
+            timeoutJob = scope.launch {
+                delay(CONNECTION_TIMEOUT_MS)
+                if (!isPageLoaded && !hasLoadError && !timeoutNotified) {
+                    timeoutNotified = true
+                    runCatching { onConnectionLost?.invoke() }
+                }
             }
         }
     }
@@ -171,8 +175,7 @@ fun rememberWebView(
                             errorCode == WebViewClient.ERROR_TIMEOUT ||
                             errorCode == WebViewClient.ERROR_TOO_MANY_REQUESTS
                         ) {
-                            authViewModel.notifyConnectionLost("无法连接到服务器 (${error?.description ?: "连接错误"})")
-                            onConnectionLost?.invoke()
+                            runCatching { onConnectionLost?.invoke() }
                         }
                     }
                 }
@@ -185,8 +188,7 @@ fun rememberWebView(
                     if (request?.isForMainFrame == true) {
                         val statusCode = errorResponse?.statusCode ?: 0
                         if (statusCode in 500..599) {
-                            authViewModel.notifyConnectionLost("服务器错误 ($statusCode)，请稍后重试")
-                            onConnectionLost?.invoke()
+                            runCatching { onConnectionLost?.invoke() }
                         }
                     }
                 }
@@ -318,8 +320,7 @@ fun WebViewScreen(
     path: String,
     showBackButton: Boolean = false,
     onBack: (() -> Unit)? = null,
-    onConnectionLost: (() -> Unit)? = null,
-    authViewModel: AuthViewModel = hiltViewModel()
+    onConnectionLost: (() -> Unit)? = null
 ) {
     val baseUrl = ApiClient.getBaseUrl().trimEnd('/')
     val targetUrl = "$baseUrl${if (path.startsWith("/")) path else "/$path"}"
@@ -344,7 +345,6 @@ fun WebViewScreen(
             delay(CONNECTION_TIMEOUT_MS)
             if (!isPageLoaded && !hasLoadError && !timeoutNotified) {
                 timeoutNotified = true
-                authViewModel.notifyConnectionLost("连接服务器超时，请检查网络或服务器地址")
                 onConnectionLost?.invoke()
             }
         }
@@ -434,7 +434,6 @@ fun WebViewScreen(
                                     errorCode == WebViewClient.ERROR_TIMEOUT ||
                                     errorCode == WebViewClient.ERROR_TOO_MANY_REQUESTS
                                 ) {
-                                    authViewModel.notifyConnectionLost("无法连接到服务器 (${error?.description ?: "连接错误"})")
                                     onConnectionLost?.invoke()
                                 }
                             }
@@ -444,7 +443,6 @@ fun WebViewScreen(
                             if (request?.isForMainFrame == true) {
                                 val statusCode = errorResponse?.statusCode ?: 0
                                 if (statusCode in 500..599) {
-                                    authViewModel.notifyConnectionLost("服务器错误 ($statusCode)，请稍后重试")
                                     onConnectionLost?.invoke()
                                 }
                             }

@@ -52,70 +52,75 @@ class AuthViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            // 1. 迁移旧版单服务器配置
-            preferencesManager.migrateLegacyServer()
+            try {
+                // 1. 迁移旧版单服务器配置
+                preferencesManager.migrateLegacyServer()
 
-            // 2. 加载服务器列表
-            loadServerProfiles()
+                // 2. 加载服务器列表
+                loadServerProfiles()
 
-            // 3. 恢复记住密码标志
-            _rememberPassword.value = preferencesManager.getRememberPassword()
+                // 3. 恢复记住密码标志
+                _rememberPassword.value = preferencesManager.getRememberPassword()
 
-            // 4. 恢复激活的服务器
-            val activeId = preferencesManager.getActiveServerId()
-            val profiles = _serverProfiles.value
+                // 4. 恢复激活的服务器
+                val activeId = preferencesManager.getActiveServerId()
+                val profiles = _serverProfiles.value
 
-            val activeProfile = if (activeId != null) {
-                profiles.find { it.id == activeId }
-            } else {
-                profiles.find { it.isDefault } ?: profiles.firstOrNull()
-            }
-
-            if (activeProfile != null) {
-                _activeServerId.value = activeProfile.id
-                val normalizedUrl = normalizeUrl(activeProfile.serverUrl)
-                _serverUrl.value = normalizedUrl
-                ApiClient.setBaseUrl(normalizedUrl)
-
-                // 如果该服务器有保存的用户名，预填
-                if (activeProfile.username.isNotEmpty()) {
-                    ApiClient.setCredentials(activeProfile.username, "")
+                val activeProfile = if (activeId != null) {
+                    profiles.find { it.id == activeId }
+                } else {
+                    profiles.find { it.isDefault } ?: profiles.firstOrNull()
                 }
-            } else {
-                // 无服务器配置，使用旧版恢复
-                val savedUrl = preferencesManager.getServerUrl()
-                val normalizedUrl = normalizeUrl(savedUrl)
-                _serverUrl.value = normalizedUrl
-                ApiClient.setBaseUrl(normalizedUrl)
-            }
 
-            // 5. 恢复凭证
-            val credentials = preferencesManager.getCredentials()
-            if (credentials != null) {
-                ApiClient.setCredentials(credentials.first, credentials.second)
-            }
+                if (activeProfile != null) {
+                    _activeServerId.value = activeProfile.id
+                    val normalizedUrl = normalizeUrl(activeProfile.serverUrl)
+                    _serverUrl.value = normalizedUrl
+                    ApiClient.setBaseUrl(normalizedUrl)
 
-            // 6. 恢复 token，成功后立即拉取当前用户（保持登录态）
-            val savedToken = preferencesManager.getAuthToken()
-            if (savedToken != null) {
-                ApiClient.setAuthToken(savedToken)
-                authRepository.getCurrentUser().fold(
-                    onSuccess = { user ->
-                        _currentUser.value = user
-                        _loginState.value = LoginState.Success(savedToken)
-                    },
-                    onFailure = {
-                        // token 失效，清除本地存储，回到登录页
-                        preferencesManager.clearAuthToken()
-                        preferencesManager.clearCredentials()
-                        ApiClient.setAuthToken("")
-                        ApiClient.clearCredentials()
+                    // 如果该服务器有保存的用户名，预填
+                    if (activeProfile.username.isNotEmpty()) {
+                        ApiClient.setCredentials(activeProfile.username, "")
                     }
-                )
-            }
+                } else {
+                    // 无服务器配置，使用旧版恢复
+                    val savedUrl = preferencesManager.getServerUrl()
+                    val normalizedUrl = normalizeUrl(savedUrl)
+                    _serverUrl.value = normalizedUrl
+                    ApiClient.setBaseUrl(normalizedUrl)
+                }
 
-            // 初始化完成，允许 UI 渲染
-            _isInitializing.value = false
+                // 5. 恢复凭证
+                val credentials = preferencesManager.getCredentials()
+                if (credentials != null) {
+                    ApiClient.setCredentials(credentials.first, credentials.second)
+                }
+
+                // 6. 恢复 token，成功后立即拉取当前用户（保持登录态）
+                val savedToken = preferencesManager.getAuthToken()
+                if (savedToken != null) {
+                    ApiClient.setAuthToken(savedToken)
+                    authRepository.getCurrentUser().fold(
+                        onSuccess = { user ->
+                            _currentUser.value = user
+                            _loginState.value = LoginState.Success(savedToken)
+                        },
+                        onFailure = {
+                            // token 失效，清除本地存储，回到登录页
+                            preferencesManager.clearAuthToken()
+                            preferencesManager.clearCredentials()
+                            ApiClient.setAuthToken("")
+                            ApiClient.clearCredentials()
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                // 初始化失败，仍允许显示登录页
+                _loginState.value = LoginState.Idle
+            } finally {
+                // 初始化完成，允许 UI 渲染
+                _isInitializing.value = false
+            }
         }
     }
 
@@ -235,11 +240,16 @@ class AuthViewModel @Inject constructor(
      */
     fun handleConnectionLost(message: String) {
         viewModelScope.launch {
-            preferencesManager.clearAuthToken()
-            ApiClient.setAuthToken("")
-            _currentUser.value = null
-            _loginState.value = LoginState.Error(message)
-            _connectionLost.value = null
+            try {
+                preferencesManager.clearAuthToken()
+                ApiClient.setAuthToken("")
+                _currentUser.value = null
+                _loginState.value = LoginState.Error(message)
+                _connectionLost.value = null
+            } catch (_: Exception) {
+                // 即使出错也要确保 UI 知道连接丢失
+                _connectionLost.value = null
+            }
         }
     }
 
@@ -259,6 +269,11 @@ class AuthViewModel @Inject constructor(
         val profiles = _serverProfiles.value.toMutableList()
         val remember = _rememberPassword.value
 
+        // 加密失败时返回空字符串，不影响登录流程
+        val encPwd = if (remember) runCatching {
+            preferencesManager.encryptPassword(password)
+        }.getOrDefault("") else ""
+
         // 查找是否已有相同 URL 的配置
         val existing = profiles.find { normalizeUrl(it.serverUrl) == normalizeUrl(currentUrl) }
         if (existing != null) {
@@ -266,7 +281,7 @@ class AuthViewModel @Inject constructor(
             val updated = existing.copy(
                 username = username,
                 rememberPassword = remember,
-                encPassword = if (remember) preferencesManager.encryptPassword(password) else "",
+                encPassword = encPwd,
                 lastUsedAt = System.currentTimeMillis()
             )
             profiles[profiles.indexOf(existing)] = updated
@@ -275,17 +290,15 @@ class AuthViewModel @Inject constructor(
             _activeServerId.value = updated.id
         } else {
             // 新建配置
-            val name = try {
+            val name = runCatching {
                 java.net.URL(currentUrl).host
-            } catch (_: Exception) {
-                currentUrl
-            }
+            }.getOrDefault(currentUrl)
             val newProfile = ServerProfile(
                 name = name,
                 serverUrl = currentUrl,
                 username = username,
                 rememberPassword = remember,
-                encPassword = if (remember) preferencesManager.encryptPassword(password) else "",
+                encPassword = encPwd,
                 isDefault = profiles.isEmpty(),
                 lastUsedAt = System.currentTimeMillis()
             )

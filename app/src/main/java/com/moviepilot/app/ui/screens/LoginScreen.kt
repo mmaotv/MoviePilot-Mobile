@@ -111,11 +111,15 @@ fun LoginScreen(
             if (activeProfile.username.isNotEmpty() && username.isEmpty()) {
                 username = activeProfile.username
             }
-            // 如果记住密码，自动填充密码
+            // 如果记住密码，自动填充密码（解密失败不崩溃）
             if (activeProfile.rememberPassword && password.isEmpty()) {
-                val decryptedPwd = viewModel.getDecryptedPassword(activeProfile)
-                if (decryptedPwd != null) {
-                    password = decryptedPwd
+                try {
+                    val decryptedPwd = viewModel.getDecryptedPassword(activeProfile)
+                    if (decryptedPwd != null) {
+                        password = decryptedPwd
+                    }
+                } catch (_: Exception) {
+                    // 解密失败，跳过自动填充
                 }
             }
         }
@@ -138,8 +142,14 @@ fun LoginScreen(
             serverUrl = currentServerUrl
         }
     }
+    // ⚠️ 仅在 loginState 从非 Success 变为 Success 时触发，避免首次合成时误触发
+    var previousLoginState by remember { mutableStateOf<AuthViewModel.LoginState>(AuthViewModel.LoginState.Idle) }
     LaunchedEffect(loginState) {
-        if (loginState is AuthViewModel.LoginState.Success) onLoginSuccess()
+        if (previousLoginState !is AuthViewModel.LoginState.Success &&
+            loginState is AuthViewModel.LoginState.Success) {
+            onLoginSuccess()
+        }
+        previousLoginState = loginState
     }
 
     // 入场动画
@@ -323,8 +333,10 @@ fun LoginScreen(
                                                         .removeSuffix("/")
                                                     serverUrl = displayUrl
                                                     username = profile.username
-                                                    // 自动填充密码
-                                                    val decryptedPwd = viewModel.getDecryptedPassword(profile)
+                                                    // 自动填充密码（解密失败不崩溃）
+                                                    val decryptedPwd = try {
+                                                        viewModel.getDecryptedPassword(profile)
+                                                    } catch (_: Exception) { null }
                                                     password = decryptedPwd ?: ""
                                                 }
                                                 .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -494,7 +506,9 @@ fun LoginScreen(
                                                     .removeSuffix("/")
                                                 serverUrl = displayUrl
                                                 username = profile.username
-                                                val decryptedPwd = viewModel.getDecryptedPassword(profile)
+                                                val decryptedPwd = try {
+                                                    viewModel.getDecryptedPassword(profile)
+                                                } catch (_: Exception) { null }
                                                 password = decryptedPwd ?: ""
                                             }
                                             .padding(horizontal = 20.dp, vertical = 10.dp),
@@ -647,8 +661,12 @@ fun LoginScreen(
 
                 Button(
                     onClick = {
-                        saveServerUrl(getDisplayUrl())
-                        viewModel.login(username, password)
+                        try {
+                            saveServerUrl(getDisplayUrl())
+                            viewModel.login(username, password)
+                        } catch (e: Exception) {
+                            // 防止 onClick 内未捕获的异常导致崩溃
+                        }
                     },
                     enabled = canLogin,
                     modifier = Modifier

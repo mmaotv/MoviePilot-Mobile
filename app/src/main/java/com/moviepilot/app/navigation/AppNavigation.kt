@@ -15,12 +15,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,15 +36,19 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.moviepilot.app.data.local.PreferencesManager
 import com.moviepilot.app.ui.screens.*
 import com.moviepilot.app.ui.theme.ThemeManager
 import com.moviepilot.app.ui.viewmodel.AuthViewModel
+import com.moviepilot.app.ui.viewmodel.PreferencesViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.app.Activity
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectDragGestures
+import kotlin.math.roundToInt
 
 // Navigation drawer item
 data class NavDrawerItem(
@@ -125,16 +136,37 @@ fun MainScreen(
     onLogout: () -> Unit,
     onSwitchServer: () -> Unit = {},
     onConnectionLost: () -> Unit = {},
-    themeManager: ThemeManager? = null
+    themeManager: ThemeManager? = null,
+    preferencesManager: PreferencesManager = hiltViewModel<PreferencesViewModel>().preferencesManager
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
 
+    // ── 悬浮按钮位置状态 ─────────────────────────────────────────
+    var fabOffsetX by remember { mutableStateOf(0f) }
+    var fabOffsetY by remember { mutableStateOf(0f) }
+    var isFabCustomized by remember { mutableStateOf(false) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    // density 在 Composition 时获取，避免在条件块内访问 LocalDensity
+    val fabDensity = LocalDensity.current
+
+    // 启动时读取保存的位置
+    LaunchedEffect(Unit) {
+        val savedPos = preferencesManager.getFabPosition()
+        if (savedPos != null) {
+            isFabCustomized = true
+            fabOffsetX = savedPos.first
+            fabOffsetY = savedPos.second
+        } else {
+            // 默认位置
+            fabOffsetX = 0.85f
+            fabOffsetY = 0.85f
+        }
+    }
+
     // ── 共享 WebView 实例 ──────────────────────────────────────────
-    // 整个 MainScreen 生命周期内只创建一个 WebView
-    // 侧边栏切换时只调用 loadUrl()，不销毁/重建 WebView → 瞬间切换
     val (sharedWebView, loadPath, reloadPath) = rememberWebView(
         onConnectionLost = onConnectionLost
     )
@@ -490,10 +522,61 @@ fun MainScreen(
                     }
                 }
 
-                // 右下角悬浮菜单按钮
-                FloatingMenuButton(
-                    onClick = { scope.launch { drawerState.open() } }
-                )
+                // ── 可拖动悬浮菜单按钮 ─────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { coordinates ->
+                            containerSize = coordinates.size
+                        }
+                ) {
+                    if (containerSize != IntSize.Zero) {
+                        val fabSizePx = with(fabDensity) { 48.dp.toPx() }
+
+                        // 计算像素位置
+                        val posX = (fabOffsetX * containerSize.width - fabSizePx / 2).roundToInt()
+                        val posY = (fabOffsetY * containerSize.height - fabSizePx / 2).roundToInt()
+
+                        Surface(
+                            modifier = Modifier
+                                .offset { IntOffset(posX.coerceAtLeast(0), posY.coerceAtLeast(0)) }
+                                .size(48.dp)
+                                .pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragStart = {},
+                                        onDragEnd = {
+                                            // 拖动结束，保存位置
+                                            scope.launch {
+                                                preferencesManager.saveFabPosition(fabOffsetX, fabOffsetY)
+                                            }
+                                        },
+                                        onDragCancel = {},
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val newX = fabOffsetX + dragAmount.x / containerSize.width
+                                            val newY = fabOffsetY + dragAmount.y / containerSize.height
+                                            fabOffsetX = newX.coerceIn(0f, 1f)
+                                            fabOffsetY = newY.coerceIn(0f, 1f)
+                                        }
+                                    )
+                                },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                            shadowElevation = 6.dp
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu,
+                                        contentDescription = "打开菜单",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -541,27 +624,3 @@ fun PlaceholderScreen(title: String, message: String) {
 fun String.encodeUrl(): String = java.net.URLEncoder.encode(this, "UTF-8")
 fun String.decodeUrl(): String = java.net.URLDecoder.decode(this, "UTF-8")
 
-// 右下角悬浮菜单按钮
-@Composable
-fun BoxScope.FloatingMenuButton(onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .align(Alignment.BottomEnd)
-            .padding(end = 16.dp, bottom = 24.dp)
-            .size(48.dp),
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-        shadowElevation = 6.dp
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            IconButton(onClick = onClick) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = "打开菜单",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-        }
-    }
-}

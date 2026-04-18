@@ -7,6 +7,7 @@ import android.util.Base64
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
@@ -59,6 +60,12 @@ class PreferencesManager @Inject constructor(
         val NEW_CONTENT_NOTIFICATION_ENABLED = booleanPreferencesKey("new_content_notification_enabled")
         val ALERT_NOTIFICATION_ENABLED = booleanPreferencesKey("alert_notification_enabled")
 
+        /** 悬浮按钮位置 */
+        val FAB_POS_X = floatPreferencesKey("fab_pos_x")
+        val FAB_POS_Y = floatPreferencesKey("fab_pos_y")
+        /** 悬浮按钮是否已手动调整过位置 */
+        val FAB_CUSTOMIZED = booleanPreferencesKey("fab_customized")
+
         private const val KEYSTORE_ALIAS = "moviepilot_cred_key"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val AES_MODE = "AES/GCM/NoPadding"
@@ -69,7 +76,7 @@ class PreferencesManager @Inject constructor(
 
     // ── Keystore 密钥管理 ──────────────────────────────────────────
 
-    private fun getOrCreateSecretKey(): SecretKey {
+    private fun getOrCreateSecretKey(): SecretKey? = runCatching {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         keyStore.getKey(KEYSTORE_ALIAS, null)?.let { return it as SecretKey }
 
@@ -84,17 +91,21 @@ class PreferencesManager @Inject constructor(
                 .setKeySize(256)
                 .build()
         )
-        return keyGen.generateKey()
-    }
+        keyGen.generateKey()
+    }.getOrNull()
 
-    /** 加密明文，返回 Base64(IV):Base64(密文) */
-    private fun encrypt(plaintext: String): String {
+    /**
+     * 加密明文，返回 Base64(IV):Base64(密文)
+     * 失败时返回空字符串（密码不保存，跳过记住密码功能）
+     */
+    private fun encrypt(plaintext: String): String = runCatching {
+        val key = getOrCreateSecretKey() ?: return ""
         val cipher = Cipher.getInstance(AES_MODE)
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
+        cipher.init(Cipher.ENCRYPT_MODE, key)
         val iv = cipher.iv
         val cipherBytes = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-        return "${Base64.encodeToString(iv, Base64.NO_WRAP)}:${Base64.encodeToString(cipherBytes, Base64.NO_WRAP)}"
-    }
+        "${Base64.encodeToString(iv, Base64.NO_WRAP)}:${Base64.encodeToString(cipherBytes, Base64.NO_WRAP)}"
+    }.getOrDefault("")
 
     /** 解密 Base64(IV):Base64(密文)，失败时返回 null */
     private fun decrypt(encoded: String): String? = runCatching {
@@ -274,8 +285,9 @@ class PreferencesManager @Inject constructor(
     /**
      * 迁移旧版单服务器配置到多服务器列表
      * 只在列表为空时执行一次
+     * 失败时静默跳过，不影响应用启动
      */
-    suspend fun migrateLegacyServer(): ServerProfile? {
+    suspend fun migrateLegacyServer(): ServerProfile? = runCatching {
         val profiles = getServerProfiles()
         if (profiles.isNotEmpty()) return null
 
@@ -296,16 +308,17 @@ class PreferencesManager @Inject constructor(
         )
         addServerProfile(profile)
         setActiveServerId(profile.id)
-        return profile
-    }
+        profile
+    }.getOrNull()
 
     /**
      * 根据 ServerProfile 获取解密后的密码
      * 仅当 rememberPassword=true 且 encPassword 非空时返回
+     * 解密失败时返回 null，不影响应用运行
      */
     fun decryptServerPassword(profile: ServerProfile): String? {
         if (!profile.rememberPassword || profile.encPassword.isBlank()) return null
-        return decrypt(profile.encPassword)
+        return runCatching { decrypt(profile.encPassword) }.getOrNull()
     }
 
     /**
@@ -384,6 +397,46 @@ class PreferencesManager @Inject constructor(
     suspend fun getAlertNotificationEnabled(): Boolean {
         return context.dataStore.data.map { preferences ->
             preferences[ALERT_NOTIFICATION_ENABLED] ?: true
+        }.first()
+    }
+
+    // ── 悬浮按钮位置 ────────────────────────────────────────────────
+
+    /**
+     * 保存悬浮按钮位置
+     * @param x 相对屏幕宽度的比例 (0.0 - 1.0)
+     * @param y 相对屏幕高度的比例 (0.0 - 1.0)
+     */
+    suspend fun saveFabPosition(x: Float, y: Float) {
+        context.dataStore.edit { preferences ->
+            preferences[FAB_POS_X] = x.coerceIn(0f, 1f)
+            preferences[FAB_POS_Y] = y.coerceIn(0f, 1f)
+            preferences[FAB_CUSTOMIZED] = true
+        }
+    }
+
+    /**
+     * 获取悬浮按钮位置
+     * @return Pair(x比例, y比例)，如果未设置则返回 null
+     */
+    suspend fun getFabPosition(): Pair<Float, Float>? {
+        return context.dataStore.data.map { preferences ->
+            if (preferences[FAB_CUSTOMIZED] == true) {
+                val x = preferences[FAB_POS_X] ?: 0.85f  // 默认靠右
+                val y = preferences[FAB_POS_Y] ?: 0.85f  // 默认靠下
+                Pair(x, y)
+            } else {
+                null
+            }
+        }.first()
+    }
+
+    /**
+     * 检查悬浮按钮是否已手动调整过
+     */
+    suspend fun isFabCustomized(): Boolean {
+        return context.dataStore.data.map { preferences ->
+            preferences[FAB_CUSTOMIZED] ?: false
         }.first()
     }
 }
