@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    MoviePilot 应用图标（PNG 直引版）
+    直接引用 logo.png，白底 + 完整 logo，无任何裁剪。
+    替换 adaptive-icon 后，桌面图标将完整展示 logo 而非被圆形区域裁剪。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 白色背景 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFF"/>
+            <corners android:radius="0dp"/>
+        </shape>
+    </item>
+
+    <!-- 完整 logo.png 居中 -->
+    <item android:gravity="center">
+        <bitmap
+            android:src="@drawable/logo"
+            android:gravity="center"/>
+    </item>
+
+</layer-list>

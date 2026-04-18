@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="brand_purple">#7C3AED</color>
+    <color name="brand_purple_dark">#5B21B6</color>
+    <!-- SplashScreen 专用 -->
+    <color name="splash_background">#7C3AED</color>
+    <color name="splash_icon_bg">#9F5FFF</color>
+</resources>

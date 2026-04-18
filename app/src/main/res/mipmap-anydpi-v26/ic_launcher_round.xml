@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    MoviePilot 圆形应用图标（PNG 直引版）
+    与 ic_launcher.xml 完全一致，用于支持圆形图标的桌面环境。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 白色背景 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFF"/>
+            <corners android:radius="0dp"/>
+        </shape>
+    </item>
+
+    <!-- 完整 logo.png 居中 -->
+    <item android:gravity="center">
+        <bitmap
+            android:src="@drawable/logo"
+            android:gravity="center"/>
+    </item>
+
+</layer-list>

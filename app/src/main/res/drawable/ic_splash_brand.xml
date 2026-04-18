@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SplashScreen 品牌图（windowSplashScreenBrandingImage）
+    显示在启动页底部区域，引用 logo.png
+-->
+<bitmap
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="180dp"
+    android:height="45dp"
+    android:src="@drawable/logo"
+    android:gravity="center"/>

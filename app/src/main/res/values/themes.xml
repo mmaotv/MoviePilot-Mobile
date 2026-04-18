@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 基础主题：无 ActionBar -->
+    <style name="Theme.MoviePilot" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- SplashScreen API (Android 12+) -->
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/splash_icon_bg</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/ic_splash_brand</item>
+    </style>
+</resources>
