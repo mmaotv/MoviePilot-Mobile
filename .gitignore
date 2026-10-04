@@ -49,3 +49,6 @@ Thumbs.db
 
 # APK 输出目录（可选，如需包含 release apk 可注释掉）
 app/release/
+
+# Kotlin session dir
+.kotlin/

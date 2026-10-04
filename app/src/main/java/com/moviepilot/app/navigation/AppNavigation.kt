@@ -190,10 +190,12 @@ fun MainScreen(
     )
 
     // 路由 → PWA 路径映射
+    // 注意：资源搜索（RESOURCE）已改为原生 Compose 页面实现，
+    // 不再走 PWA。原生实现可完全控制筛选面板，避免服务器前端
+    // 升级后弹窗遮罩与脚本版本错配导致「只有灰罩无法筛选」的问题。
     val routeToPath = remember {
         mapOf(
             NavRoutes.DASHBOARD to "/#/dashboard",
-            NavRoutes.RESOURCE to "/#/resource",
             NavRoutes.SUBSCRIBE_MOVIE to "/#/subscribe/movie",
             NavRoutes.SUBSCRIBE_TV to "/#/subscribe/tv",
             NavRoutes.CALENDAR to "/#/calendar",
@@ -214,6 +216,13 @@ fun MainScreen(
 
     // 判断当前是否为 PWA WebView 页面
     val isWebViewRoute = selectedRoute in routeToPath
+
+    // 原生页面的 NavHost 起点：资源搜索是原生页，其余原生入口是媒体详情
+    val startDestination = if (selectedRoute == NavRoutes.RESOURCE) {
+        NavRoutes.RESOURCE
+    } else {
+        NavRoutes.MEDIA_DETAIL
+    }
 
     val backgroundColor = MaterialTheme.colorScheme.background
     val surfaceColor    = MaterialTheme.colorScheme.surface
@@ -349,7 +358,11 @@ fun MainScreen(
                             onClick = {
                                 // ★ 核心改动：只改 URL，不重建 WebView
                                 selectedRoute = item.route
-                                loadPath(item.path)
+                                // 原生页面（资源搜索）不加载 PWA 路径，
+                                // 否则 WebView 会切到服务器页面导致原生页被遮盖
+                                if (item.route in routeToPath) {
+                                    loadPath(item.path)
+                                }
                                 scope.launch { drawerState.close() }
                             },
                             colors = NavigationDrawerItemDefaults.colors(
@@ -507,9 +520,14 @@ fun MainScreen(
                     // 原生页面走 NavHost
                     NavHost(
                         navController = navController,
-                        startDestination = NavRoutes.MEDIA_DETAIL,
+                        startDestination = startDestination,
                         modifier = Modifier.padding(paddingValues)
                     ) {
+                        // 资源搜索（原生实现，含完整筛选面板）
+                        composable(NavRoutes.RESOURCE) {
+                            ResourceScreen()
+                        }
+
                         composable(NavRoutes.MEDIA_DETAIL) { backStackEntry ->
                             val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
                             val mediaId   = backStackEntry.arguments?.getString("mediaId") ?: ""

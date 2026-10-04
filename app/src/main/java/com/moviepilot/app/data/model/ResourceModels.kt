@@ -18,16 +18,31 @@ data class MetaInfo(
     @SerializedName("name") val name: String?,
     @SerializedName("cn_name") val cnName: String?,
     @SerializedName("en_name") val enName: String?,
+    @SerializedName("original_name") val originalName: String?,
     @SerializedName("year") val year: String?,
     @SerializedName("total_season") val totalSeason: Int?,
     @SerializedName("begin_season") val beginSeason: Int?,
+    @SerializedName("end_season") val endSeason: Int?,
     @SerializedName("total_episode") val totalEpisode: Int?,
     @SerializedName("begin_episode") val beginEpisode: Int?,
+    @SerializedName("end_episode") val endEpisode: Int?,
     @SerializedName("season_episode") val seasonEpisode: String?,
     @SerializedName("resource_type") val resourceType: String?,
     @SerializedName("resource_pix") val resourcePix: String?,
     @SerializedName("resource_team") val resourceTeam: String?,
-    @SerializedName("video_encode") val videoEncode: String?
+    @SerializedName("resource_effect") val resourceEffect: String?,
+    @SerializedName("video_encode") val videoEncode: String?,
+    @SerializedName("video_bit") val videoBit: String?,
+    @SerializedName("audio_encode") val audioEncode: String?,
+    @SerializedName("edition") val edition: String?,
+    @SerializedName("customization") val customization: String?,
+    @SerializedName("part") val part: String?,
+    @SerializedName("fps") val fps: String?,
+    @SerializedName("web_source") val webSource: String?,
+    @SerializedName("apply_words") val applyWords: List<String>?,
+    @SerializedName("episode_list") val episodeList: List<String>?,
+    @SerializedName("tmdbid") val tmdbId: Any?,
+    @SerializedName("doubanid") val doubanId: Any?
 )
 
 data class SearchMediaInfo(
@@ -51,11 +66,14 @@ data class TorrentInfoDetail(
     @SerializedName("peers") val peers: Int,
     @SerializedName("grabs") val grabs: Int?,
     @SerializedName("pubdate") val pubDate: String?,
+    @SerializedName("date_elapsed") val dateElapsed: String?,
     @SerializedName("freedate") val freeDate: String?,
     @SerializedName("uploadvolumefactor") val uploadVolumeFactor: Float?,
     @SerializedName("downloadvolumefactor") val downloadVolumeFactor: Float?,
     @SerializedName("hit_and_run") val hitAndRun: Boolean?,
     @SerializedName("labels") val labels: List<String>?,
+    @SerializedName("category") val category: String?,
+    @SerializedName("imdbid") val imdbId: String?,
     @SerializedName("volume_factor") val volumeFactor: String?,
     @SerializedName("freedate_diff") val freeDateDiff: String?
 )
