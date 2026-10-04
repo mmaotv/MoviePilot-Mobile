@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SplashScreen 启动图标（Android 12+ windowSplashScreenAnimatedIcon）
+    引用 logo.png，Android 12+ 会将其显示在品牌紫背景之上
+    PNG 尺寸建议 ≥ 480×480px
+-->
+<bitmap
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp"
+    android:height="240dp"
+    android:src="@drawable/logo"
+    android:gravity="center"/>

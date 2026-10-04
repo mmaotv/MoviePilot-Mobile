@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    MoviePilot 自适应图标前景层
+    - layer-list：白底完整承载 logo.png（完整展示，不裁剪原始图片内容）
+    - Android 自适应图标系统会自动将前景层裁剪至中心圆形区域
+    - 若想完整显示整张 logo.png（不受圆形裁剪），需配合 mipmap-anydpi-v26 以外的 fallback 图标
+    - logo.png 本身请确保：四周有足够留白，核心内容在中心 2/3 范围内，避免被裁掉
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 第1层：白色背景（logo 完整展示的底板） -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFF"/>
+            <corners android:radius="0dp"/>
+        </shape>
+    </item>
+
+    <!-- 第2层：logo.png，完整居中，四周留白不被裁剪 -->
+    <item
+        android:gravity="center">
+        <bitmap
+            android:src="@drawable/logo"
+            android:gravity="center"
+            android:width="108dp"
+            android:height="108dp"/>
+    </item>
+
+</layer-list>
