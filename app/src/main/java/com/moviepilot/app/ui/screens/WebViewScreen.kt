@@ -3,6 +3,7 @@ package com.moviepilot.app.ui.screens
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.view.MotionEvent
 import android.webkit.*
 import androidx.compose.foundation.background
@@ -67,7 +68,6 @@ fun rememberWebView(
     var isPageLoaded by remember { mutableStateOf(false) }
     var hasLoadError by remember { mutableStateOf(false) }
     var timeoutNotified by remember { mutableStateOf(false) }
-    var autoLoginAttempted by remember { mutableStateOf(false) }
     var hasError by remember { mutableStateOf(false) }
     var currentUrl by remember { mutableStateOf("") }
 
@@ -146,7 +146,6 @@ fun rememberWebView(
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     hasError = false
                     currentUrl = url ?: ""
-                    autoLoginAttempted = false
                     loadStartTime = System.currentTimeMillis()
                     isPageLoaded = false
                     hasLoadError = false
@@ -155,10 +154,9 @@ fun rememberWebView(
                 override fun onPageFinished(view: WebView?, url: String?) {
                     currentUrl = url ?: ""
                     isPageLoaded = true
-                    if (!autoLoginAttempted) {
-                        autoLoginAttempted = true
-                        attemptAutoLogin(view)
-                    }
+                    injectOverlayFix(view)
+                    injectAuthToken(view)
+                    injectApiProbe(view)
                 }
 
                 override fun onReceivedError(
@@ -208,9 +206,15 @@ fun rememberWebView(
     }
 
     // 加载 URL 的函数
+    //
+    // 服务器 PWA 的 axios baseURL 是相对路径 `api/v1/`，依赖文档自身的
+    // location 解析。若这里只改 hash 让 SPA 内部跳转，页面基址与后续
+    // 组件缓存状态可能不一致，导致部分页面出现「服务器连接失败」。
+    // 因此统一整页加载，行为与浏览器地址栏输入完全一致，最稳妥。
+    // 代价是切换时有一次加载过程，但服务器在同一局域网内，实测可接受。
     val loadPath: (String) -> Unit = { path ->
         val baseUrl = ApiClient.getBaseUrl().trimEnd('/')
-        val url = "$baseUrl${if (path.startsWith("/")) path else "/$path"}"
+        val url = baseUrl + (if (path.startsWith("/")) path else "/$path")
         webView?.loadUrl(url)
     }
 
@@ -239,8 +243,9 @@ fun SharedWebViewContainer(
     showBackButton: Boolean = false,
     onBack: (() -> Unit)? = null
 ) {
-    val bgColor = androidx.compose.ui.graphics.Color(0xFFF8F8FF)
-    val accentColor = androidx.compose.ui.graphics.Color(0xFF6200EA)
+    // 配色与服务器 PWA 深色主题一致，避免 WebView 区域与原生侧边栏割裂
+    val bgColor = androidx.compose.ui.graphics.Color(0xFF0E1116)
+    val accentColor = androidx.compose.ui.graphics.Color(0xFF8D51F9)
 
     Box(
         modifier = Modifier
@@ -328,7 +333,6 @@ fun WebViewScreen(
     var hasError by remember { mutableStateOf(false) }
     var currentUrl by remember { mutableStateOf(targetUrl) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var autoLoginAttempted by remember { mutableStateOf(false) }
 
     var loadStartTime by remember { mutableStateOf(0L) }
     var isPageLoaded by remember { mutableStateOf(false) }
@@ -350,8 +354,9 @@ fun WebViewScreen(
         }
     }
 
-    val bgColor = androidx.compose.ui.graphics.Color(0xFFF8F8FF)
-    val accentColor = androidx.compose.ui.graphics.Color(0xFF6200EA)
+    // 配色与服务器 PWA 深色主题一致，避免 WebView 区域与原生侧边栏割裂
+    val bgColor = androidx.compose.ui.graphics.Color(0xFF0E1116)
+    val accentColor = androidx.compose.ui.graphics.Color(0xFF8D51F9)
 
     Box(
         modifier = Modifier
@@ -409,8 +414,7 @@ fun WebViewScreen(
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             hasError = false
                             currentUrl = url ?: targetUrl
-                            autoLoginAttempted = false
-                            loadStartTime = System.currentTimeMillis()
+                                    loadStartTime = System.currentTimeMillis()
                             isPageLoaded = false
                             hasLoadError = false
                         }
@@ -418,10 +422,9 @@ fun WebViewScreen(
                         override fun onPageFinished(view: WebView?, url: String?) {
                             currentUrl = url ?: targetUrl
                             isPageLoaded = true
-                            if (!autoLoginAttempted) {
-                                autoLoginAttempted = true
-                                attemptAutoLogin(view)
-                            }
+                            injectOverlayFix(view)
+                            injectAuthToken(view)
+                            injectApiProbe(view)
                         }
 
                         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -503,9 +506,146 @@ fun WebViewScreen(
 }
 
 /**
+ * 注入样式 + 诊断，修正弹层在原生容器中的定位并回报实际几何信息
+ *
+ * 现象：点击「资源搜索」的筛选维度时，只出现一层灰色遮罩，弹层内容不显示；
+ *       而「综合筛选」入口可以正常弹出。
+ *
+ * 注意：CSS/JS 一律用 Base64 传输后由 atob 解码，
+ *       避免多行字符串在 Kotlin 字符串模板里产生转义错误
+ *       （曾导致注入脚本抛 Uncaught SyntaxError 而静默失效）。
+ */
+private const val OVERLAY_FIX_CSS_B64 =
+    "LnYtb3ZlcmxheV9fY29udGVudCB7IG1heC1oZWlnaHQ6IDEwMCUgIWltcG9y" +
+    "dGFudDsgfQoudi1vdmVybGF5X19jb250ZW50ID4gKiB7IG1heC1oZWlnaHQ6" +
+    "IDk2JSAhaW1wb3J0YW50OyB9"
+
+private fun injectOverlayFix(view: WebView?) {
+    view ?: return
+    runCatching {
+        val js = """
+            (function () {
+              try {
+                if (!document.getElementById('mp-overlay-fix')) {
+                  var css = atob('$OVERLAY_FIX_CSS_B64');
+                  var st = document.createElement('style');
+                  st.id = 'mp-overlay-fix';
+                  st.textContent = css;
+                  (document.head || document.documentElement).appendChild(st);
+                }
+                if (!window.__mpObs && window.MutationObserver) {
+                  window.__mpObs = new MutationObserver(function () {
+                    var ov = document.querySelector('.v-overlay');
+                    if (!ov) return;
+                    var ct = document.querySelector('.v-overlay__content');
+                    var r = ov.getBoundingClientRect();
+                    var m = 'OV top=' + Math.round(r.top) + ' h=' + Math.round(r.height)
+                          + ' vw=' + window.innerWidth + ' vh=' + window.innerHeight
+                          + ' dpr=' + window.devicePixelRatio
+                          + ' vvScale=' + (window.visualViewport ? window.visualViewport.scale : -1)
+                          + ' vvH=' + (window.visualViewport ? Math.round(window.visualViewport.height) : -1);
+                    if (ct) {
+                      var r2 = ct.getBoundingClientRect();
+                      var cs3 = getComputedStyle(ct);
+                      m += ' | CT ' + Math.round(r2.top) + ',' + Math.round(r2.height)
+                         + 'x' + Math.round(r2.width)
+                         + ' disp=' + cs3.display + ' vis=' + cs3.visibility
+                         + ' op=' + cs3.opacity + ' kids=' + ct.children.length
+                         + ' html=' + ct.innerHTML.length;
+                      for (var i = 0; i < ct.children.length && i < 3; i++) {
+                        var k = ct.children[i];
+                        var kr = k.getBoundingClientRect();
+                        var kcs = getComputedStyle(k);
+                        m += ' ||K' + i + ' ' + k.tagName + '.' + (k.className || '').slice(0, 60)
+                           + ' r=' + Math.round(kr.top) + ',' + Math.round(kr.height) + 'x' + Math.round(kr.width)
+                           + ' disp=' + kcs.display + ' op=' + kcs.opacity;
+                      }
+                    } else { m += ' | CT=NULL'; }
+                    if (window.AndroidBridge && AndroidBridge.log) { AndroidBridge.log(m); }
+                  });
+                  window.__mpObs.observe(document.body, { childList: true, subtree: true });
+                }
+              } catch (e) {
+                if (window.AndroidBridge && AndroidBridge.log) {
+                  AndroidBridge.log('INJECT_ERR ' + e.message);
+                }
+              }
+            })();
+        """.trimIndent()
+        view.evaluateJavascript(js, null)
+    }
+}
+
+/**
+ * 诊断：在 WebView 上下文里实测 PWA 的 API 请求
+ *
+ * 现象：浏览器中「下载管理 / 媒体整理 / 文件管理」均正常，
+ *       但 App 内点击后为空。
+ * 需要确认：页面内 fetch 是否被拒（Cookie / CSRF / 相对路径解析）。
+ */
+private fun injectApiProbe(view: WebView?) {
+    view ?: return
+    runCatching {
+        val js = """
+            (function () {
+              if (window.__mpProbe) return;
+              window.__mpProbe = 1;
+              var lsKeys = [];
+              try {
+                for (var i = 0; i < localStorage.length; i++) { lsKeys.push(localStorage.key(i)); }
+              } catch (e) {}
+              var authVal = '';
+              try { authVal = (localStorage.getItem('auth') || 'NULL').slice(0, 120); } catch (e) {}
+              var out = 'LOC=' + location.href
+                + ' cookie=' + (document.cookie || 'EMPTY')
+                + ' LS_KEYS=' + lsKeys.join(',')
+                + ' AUTH=' + authVal;
+              if (window.AndroidBridge && AndroidBridge.log) AndroidBridge.log(out);
+              var tk = '';
+              try {
+                var a = JSON.parse(localStorage.getItem('auth') || '{}');
+                tk = a.token || '';
+              } catch (e) {}
+              var log2 = 'AUTH_LEN=' + tk.length;
+              if (window.AndroidBridge && AndroidBridge.log) AndroidBridge.log(log2);
+              var paths = ['/api/v1/download/', '/api/v1/history/transfer'];
+              paths.forEach(function (p) {
+                fetch(p, {
+                  credentials: 'include',
+                  headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + tk }
+                })
+                  .then(function (r) {
+                    return r.text().then(function (t) {
+                      var m = 'PROBE ' + p + ' -> ' + r.status + ' len=' + t.length
+                            + ' body=' + t.slice(0, 100).replace(/\n/g, ' ');
+                      if (window.AndroidBridge && AndroidBridge.log) AndroidBridge.log(m);
+                    });
+                  })
+                  .catch(function (e) {
+                    if (window.AndroidBridge && AndroidBridge.log) {
+                      AndroidBridge.log('PROBE ' + p + ' -> ERR ' + e.message);
+                    }
+                  });
+              });
+            })();
+        """.trimIndent()
+        view.evaluateJavascript(js, null)
+    }
+}
+
+/**
  * JavaScript 接口，用于向 WebView 提供 Android 端保存的凭证
  */
 class WebAppInterface {
+    /**
+     * 接收 PWA 侧诊断日志，转发到 logcat。
+     * 弹层（v-overlay）定位异常时，用它把实际几何数据带出来。
+     */
+    @android.webkit.JavascriptInterface
+    fun log(msg: String?) {
+        android.util.Log.i("MPDIAG", msg ?: "")
+    }
+
     @android.webkit.JavascriptInterface
     fun getUsername(): String = ApiClient.getCredentials()?.first ?: ""
 
@@ -516,65 +656,59 @@ class WebAppInterface {
 /**
  * 尝试自动登录：如果检测到登录页且有保存的凭证，则自动填充并提交
  */
-private fun attemptAutoLogin(webView: WebView?) {
-    if (webView == null) return
-    val credentials = ApiClient.getCredentials() ?: return
-    val (username, password) = credentials
-    if (username.isEmpty() || password.isEmpty()) return
 
-    val autoLoginScript = """
-        (function(username, password) {
-            var MAX_WAIT = 8000;
-            var INTERVAL = 400;
-            var elapsed = 0;
-
-            function tryLogin() {
-                var userField = document.querySelector('input[name="username"]')
-                    || document.querySelector('input[id="username"]')
-                    || document.querySelector('input[placeholder*="用户名"]')
-                    || document.querySelector('input[placeholder*="账号"]')
-                    || document.querySelector('input[autocomplete="username"]')
-                    || document.querySelector('input[type="text"]');
-
-                var passField = document.querySelector('input[name="password"]')
-                    || document.querySelector('input[id="password"]')
-                    || document.querySelector('input[type="password"]')
-                    || document.querySelector('input[placeholder*="密码"]')
-                    || document.querySelector('input[autocomplete="current-password"]');
-
-                if (!userField || !passField) {
-                    if (elapsed < MAX_WAIT) {
-                        elapsed += INTERVAL;
-                        setTimeout(tryLogin, INTERVAL);
-                    }
-                    return;
+/**
+ * 把 App 已登录的 token 注入服务器 PWA
+ *
+ * 背景：服务器 PWA 用 Pinia store `auth` 持久化登录 token（localStorage），
+ *       所有业务请求都带 `Authorization: Bearer <token>`。
+ *       App 自己的登录走 `POST /api/v2/login/access-token`，token 只存在
+ *       App 内存/加密存储里，WebView 内的 PWA 拿不到，
+ *       于是页面接口全部 401 —— 表现为「下载管理 / 媒体整理 / 文件管理」
+ *       在浏览器里正常，在 App 里空白。
+ *
+ * 做法：App 登录成功后，把 token 直接写进 PWA 的 localStorage 并触发
+ *       hashchange 让其重新初始化，省去模拟填写登录表单（脆弱且易失效）。
+ */
+private fun injectAuthToken(view: WebView?) {
+    val token = ApiClient.getAuthToken()
+    if (view == null || token.isNullOrBlank()) return
+    runCatching {
+        // 服务器 PWA 用 pinia-persist 持久化登录态：persist:true 时
+        // 存储键就是 store 的 $id（此处为 "auth"），值为整个 state 的 JSON。
+        // 写入后需让页面重载一次，store 才会以新 token 完成 hydrate。
+        val js = """
+            (function () {
+              var t = ${jsonString(token)};
+              try {
+                localStorage.setItem('auth', JSON.stringify({
+                  token: t, remember: true, originalPath: null
+                }));
+                if (!sessionStorage.getItem('__mp_auth_done')) {
+                  sessionStorage.setItem('__mp_auth_done', '1');
+                  setTimeout(function () { location.reload(); }, 50);
                 }
+              } catch (e) {
+                if (window.AndroidBridge && AndroidBridge.log) {
+                  AndroidBridge.log('AUTH_ERR ' + e.message);
+                }
+              }
+            })();
+        """.trimIndent()
+        view.evaluateJavascript(js, null)
+    }
+}
 
-                userField.value = username;
-                passField.value = password;
-                userField.dispatchEvent(new Event('input', { bubbles: true }));
-                passField.dispatchEvent(new Event('input', { bubbles: true }));
-
-                setTimeout(function() {
-                    var btn = document.querySelector('button[type="submit"]')
-                        || document.querySelector('input[type="submit"]');
-                    if (!btn) {
-                        var allBtns = document.querySelectorAll('button');
-                        for (var i = 0; i < allBtns.length; i++) {
-                            var t = allBtns[i].textContent || '';
-                            if (t.includes('登录') || t.includes('Login') || t.includes('登 录')) {
-                                btn = allBtns[i];
-                                break;
-                            }
-                        }
-                    }
-                    if (btn) btn.click();
-                }, 200);
-            }
-
-            tryLogin();
-        })('${username.replace("\\", "\\\\").replace("'", "\\'")}', '${password.replace("\\", "\\\\").replace("'", "\\'")}');
-    """.trimIndent()
-
-    webView.evaluateJavascript(autoLoginScript, null)
+/** 把字符串安全编码为 JS 字面量 */
+private fun jsonString(raw: String): String {
+    val sb = StringBuilder("\"")
+    for (ch in raw) {
+        when {
+            ch == '\\' -> sb.append("\\\\")
+            ch == '"' -> sb.append("\\\"")
+            ch.code < 0x20 -> sb.append("\\u").append(ch.code.toString(16).padStart(4, '0'))
+            else -> sb.append(ch)
+        }
+    }
+    return sb.append("\"").toString()
 }

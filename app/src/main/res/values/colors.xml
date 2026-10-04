@@ -1,9 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
-    <color name="brand_purple">#7C3AED</color>
-    <color name="brand_purple_dark">#5B21B6</color>
-    <!-- SplashScreen 专用 -->
-    <color name="splash_background">#7C3AED</color>
-    <color name="splash_icon_bg">#9F5FFF</color>
+    <!--
+        配色与服务器 PWA 保持一致（MoviePilot v3.1.0）：
+          背景取服务器 index.html 的 initial-loader-bg（#0E1116）
+          主色取服务器 initial-loader-color（#8D51F9）
+        这样「启动页 → 登录页 → PWA 主界面」三段过渡视觉连续。
+    -->
+    <color name="mp_bg">#0E1116</color>
+    <color name="mp_primary">#8D51F9</color>
+    <color name="mp_surface">#161B22</color>
+    <color name="mp_on_surface">#E6EDF3</color>
+    <color name="mp_on_surface_variant">#8B949E</color>
+    <color name="mp_outline">#30363D</color>
+
+    <color name="ic_launcher_background">#0E1116</color>
+    <color name="brand_purple">#8D51F9</color>
+    <color name="brand_purple_dark">#6D28D9</color>
+
+    <!-- SplashScreen 专用：与 PWA 背景一致，避免紫色底 + 深色图标的割裂感 -->
+    <color name="splash_background">#0E1116</color>
+    <color name="splash_icon_bg">#8D51F9</color>
 </resources>

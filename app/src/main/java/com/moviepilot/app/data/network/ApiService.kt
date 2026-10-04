@@ -52,7 +52,7 @@ interface ApiService {
     suspend fun searchTorrents(@Query("keyword") keyword: String): SearchResponse
 
     @GET("api/v1/search/last")
-    suspend fun getLastSearchResults(): SearchResponse
+    suspend fun getLastSearchResults(): List<TorrentSearchResult>
 
     @GET("api/v1/recommend/trending")
     suspend fun getTrending(@Query("type") type: String = "MOV", @Query("page") page: Int = 1): List<MediaInfo>
@@ -94,7 +94,7 @@ interface ApiService {
      * 请求体为 TorrentSearchResult（含 torrent_info / meta_info / media_info）
      */
     @POST("api/v1/download/")
-    suspend fun addDownloadTask(@Body torrent: Map<String, Any>): Response<Unit>
+    suspend fun addDownloadTask(@Body torrent: DownloadRequest): Response<Unit>
 
     // ========== History ==========
     @GET("api/v1/history/transfer")
@@ -976,4 +976,61 @@ data class SearchResponse(
     @SerializedName("success") val success: Boolean,
     @SerializedName("message") val message: String?,
     @SerializedName("data") val data: List<TorrentSearchResult>?
+)
+
+/**
+ * `/api/v1/search/last`（最近搜索结果）的响应结构。
+ *
+ * 注意：与 `/api/v1/search/title` 不同——后者返回 `{success, message, data}` 包装对象，
+ * 而前者直接返回数组。v3.1.0 实测：数组长度可达 752 条。
+ */
+data class SearchListResponse(
+    @SerializedName("success") val success: Boolean?,
+    @SerializedName("message") val message: String?,
+    @SerializedName("data") val data: List<TorrentSearchResult>?
+)
+
+// ══════════════════════════════════════════════════════════════
+//  下载请求体（v3.1.0）
+//  POST /api/v1/download/ 期望 {torrent_in, media_in}，
+//  两个字段均为必填。必须用强类型，不能用 Map<String, Any>，
+//  否则 Retrofit 会生成带通配符的参数类型导致运行时报错。
+// ══════════════════════════════════════════════════════════════
+
+data class DownloadRequest(
+    @SerializedName("torrent_in") val torrentIn: TorrentIn,
+    @SerializedName("media_in") val mediaIn: MediaIn
+)
+
+data class TorrentIn(
+    @SerializedName("site") val site: Int,
+    @SerializedName("site_name") val siteName: String,
+    @SerializedName("title") val title: String,
+    @SerializedName("enclosure") val enclosure: String?,
+    @SerializedName("page_url") val pageUrl: String?,
+    @SerializedName("size") val size: Long,
+    @SerializedName("seeders") val seeders: Int,
+    @SerializedName("peers") val peers: Int,
+    @SerializedName("description") val description: String?,
+    @SerializedName("pubdate") val pubDate: String?,
+    @SerializedName("volume_factor") val volumeFactor: String?,
+    @SerializedName("hit_and_run") val hitAndRun: Boolean,
+    @SerializedName("labels") val labels: List<String>,
+    @SerializedName("uploadvolumefactor") val uploadVolumeFactor: Float,
+    @SerializedName("downloadvolumefactor") val downloadVolumeFactor: Float,
+    @SerializedName("category") val category: String?
+)
+
+data class MediaIn(
+    @SerializedName("id") val id: Int? = null,
+    @SerializedName("title") val title: String,
+    @SerializedName("year") val year: String? = null,
+    @SerializedName("type") val type: String? = null,
+    @SerializedName("poster_path") val posterPath: String? = null,
+    @SerializedName("vote_average") val voteAverage: Float? = null,
+    @SerializedName("season") val season: Int? = null,
+    @SerializedName("episode") val episode: Int? = null,
+    @SerializedName("resource_pix") val resourcePix: String? = null,
+    @SerializedName("resource_type") val resourceType: String? = null,
+    @SerializedName("video_encode") val videoEncode: String? = null
 )

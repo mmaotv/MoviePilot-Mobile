@@ -35,40 +35,46 @@ import com.moviepilot.app.R
 import com.moviepilot.app.data.model.ServerProfile
 import com.moviepilot.app.ui.viewmodel.AuthViewModel
 
-// ── MoviePilot 品牌配色系统（对齐 PWA 前端） ──────────────────────────────────
+// ── MoviePilot 品牌配色（对齐服务器 PWA v3.1.0 深色主题）────────────────────
+//
+// 关键点：登录页必须与服务器 PWA 使用同一套深色配色，
+// 否则「启动页 → 登录页 → PWA 主界面」会出现浅色/深色跳变，观感割裂。
+// 取值来自服务器 index.html 的内联变量：
+//   --initial-loader-bg: #0e1116
+//   --initial-loader-color: #8d51f9
 
 // 背景
-private val BgPrimary      = Color(0xFFE8E4DF)
-private val BgSecondary    = Color(0xFFDDD9D4)
+private val BgPrimary      = Color(0xFF0E1116)
+private val BgSecondary    = Color(0xFF161B22)
 
 // 卡片
-private val CardBg         = Color(0xFFFFFFFF)
-private val CardBorder     = Color(0xFFE0DBD6)
-private val FieldDivider   = Color(0xFFEEEAE5)
+private val CardBg         = Color(0xFF161B22)
+private val CardBorder     = Color(0xFF30363D)
+private val FieldDivider   = Color(0xFF21262D)
 
 // 品牌
-private val BrandPurple    = Color(0xFF7C3AED)
-private val BrandPurpleLight = Color(0xFF8B5CF6)
-private val BrandPurpleDisabled = Color(0xFFC4B5FD)
-private val BrandPurpleBg  = Color(0xFFF3F0FF)
+private val BrandPurple    = Color(0xFF8D51F9)
+private val BrandPurpleLight = Color(0xFFA78BFA)
+private val BrandPurpleDisabled = Color(0xFF4C3A8A)
+private val BrandPurpleBg  = Color(0xFF1E1B2E)
 
 // 文字
-private val TextPrimary    = Color(0xFF1A1A2E)
-private val TextSecondary  = Color(0xFF6B7280)
-private val TextPlaceholder= Color(0xFFB0A8A0)
+private val TextPrimary    = Color(0xFFE6EDF3)
+private val TextSecondary  = Color(0xFF8B949E)
+private val TextPlaceholder= Color(0xFF6E7681)
 
 // 错误
-private val ErrorRed       = Color(0xFFEF4444)
-private val ErrorBg        = Color(0xFFFEE2E2)
-private val ErrorBorder    = Color(0xFFFCA5A5)
+private val ErrorRed       = Color(0xFFF85149)
+private val ErrorBg        = Color(0xFF2D1416)
+private val ErrorBorder    = Color(0xFF8B2C2C)
 
 // 成功/已记住
-private val BrandGreen     = Color(0xFF22C55E)
+private val BrandGreen     = Color(0xFF3FB950)
 
 // 警告（连接超时）
-private val WarnOrange     = Color(0xFFF59E0B)
-private val WarnBg         = Color(0xFFFFFBEB)
-private val WarnBorder     = Color(0xFFFDE68A)
+private val WarnOrange     = Color(0xFFD29922)
+private val WarnBg         = Color(0xFF2D2410)
+private val WarnBorder     = Color(0xFF8B6D1F)
 
 @Composable
 fun LoginScreen(
@@ -265,7 +271,7 @@ fun LoginScreen(
                             elevation = 8.dp,
                             shape = RoundedCornerShape(16.dp),
                             ambientColor = Color(0x14000000),
-                            spotColor = Color(0x1A7C3AED)
+                            spotColor = Color(0x1A8D51F9)
                         )
                         .clip(RoundedCornerShape(16.dp))
                         .background(CardBg)
@@ -315,7 +321,7 @@ fun LoginScreen(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(Color(0xFFF9F7F5))
+                                        .background(BgSecondary)
                                         .padding(vertical = 4.dp)
                                 ) {
                                     profiles.sortedByDescending { it.lastUsedAt }.forEach { profile ->
@@ -349,7 +355,7 @@ fun LoginScreen(
                                                     .clip(RoundedCornerShape(10.dp))
                                                     .background(
                                                         if (isActive) BrandPurple.copy(alpha = 0.15f)
-                                                        else Color(0xFFE8E4DF)
+                                                        else CardBorder
                                                     ),
                                                 contentAlignment = Alignment.Center
                                             ) {
@@ -489,7 +495,7 @@ fun LoginScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFFF9F7F5))
+                                    .background(BgSecondary)
                                     .padding(vertical = 6.dp)
                             ) {
                                 serverProfiles.sortedByDescending { it.lastUsedAt }.forEach { profile ->
@@ -520,7 +526,7 @@ fun LoginScreen(
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .background(
                                                     if (isActive) BrandPurple.copy(alpha = 0.15f)
-                                                    else Color(0xFFE8E4DF)
+                                                    else CardBorder
                                                 ),
                                             contentAlignment = Alignment.Center
                                         ) {

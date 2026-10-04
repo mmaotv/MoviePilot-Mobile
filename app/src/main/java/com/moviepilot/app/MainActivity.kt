@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.moviepilot.app.data.local.PreferencesManager
 import com.moviepilot.app.navigation.AppNavigation
 import com.moviepilot.app.ui.theme.MoviePilotTheme
 import com.moviepilot.app.ui.theme.ThemeManager
@@ -25,6 +26,9 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     @Inject
     lateinit var themeManager: ThemeManager
+
+    @Inject
+    lateinit var preferencesManager: PreferencesManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 1. 安装 SplashScreen（必须在 super.onCreate 之前）
@@ -72,7 +76,8 @@ class MainActivity : ComponentActivity() {
                                 authViewModel.logout()
                             },
                             authViewModel = authViewModel,
-                            themeManager = themeManager
+                            themeManager = themeManager,
+                            preferencesManager = preferencesManager
                         )
                     }
                 }

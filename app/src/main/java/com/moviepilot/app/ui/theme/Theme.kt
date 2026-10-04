@@ -13,32 +13,39 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+// 深色主题：与服务器 PWA v3.1.0 完全一致，
+// 保证「启动页 → 登录页 → 侧边栏 → PWA 内容」全程无配色跳变。
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF6200EA),
-    secondary = Color(0xFF9C27B0),
-    tertiary = Color(0xFF4ecca3),
-    background = Color(0xFF1A1A1A),
-    surface = Color(0xFF2D2D2D),
-    surfaceVariant = Color(0xFF3D3D3D),
+    primary = Color(0xFF8D51F9),
+    secondary = Color(0xFFA78BFA),
+    tertiary = Color(0xFF3FB950),
+    background = Color(0xFF0E1116),
+    surface = Color(0xFF161B22),
+    surfaceVariant = Color(0xFF21262D),
     onPrimary = Color.White,
-    onSecondary = Color.White,
+    onSecondary = Color.Black,
     onTertiary = Color.Black,
-    onBackground = Color.White,
-    onSurface = Color.White
+    onBackground = Color(0xFFE6EDF3),
+    onSurface = Color(0xFFE6EDF3),
+    onSurfaceVariant = Color(0xFF8B949E),
+    outline = Color(0xFF30363D)
 )
 
+// 浅色主题：PWA 侧栏/弹层在浅色下也使用同一套强调色
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF6200EA),    // 紫色，与 PWA 一致
-    secondary = Color(0xFF9C27B0),
-    tertiary = Color(0xFF4ecca3),  // 保留绿色点缀
-    background = Color(0xFFF8F8FF), // 浅色背景（接近白色）
+    primary = Color(0xFF8D51F9),
+    secondary = Color(0xFFA78BFA),
+    tertiary = Color(0xFF3FB950),
+    background = Color(0xFFF5F6F8),
     surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFEDE7F6),
+    surfaceVariant = Color(0xFFEBEDF0),
     onPrimary = Color.White,
-    onSecondary = Color.White,
+    onSecondary = Color.Black,
     onTertiary = Color.Black,
-    onBackground = Color(0xFF1A1A1A),
-    onSurface = Color(0xFF1A1A1A)
+    onBackground = Color(0xFF0E1116),
+    onSurface = Color(0xFF0E1116),
+    onSurfaceVariant = Color(0xFF57606A),
+    outline = Color(0xFFD0D7DE)
 )
 
 @Composable
