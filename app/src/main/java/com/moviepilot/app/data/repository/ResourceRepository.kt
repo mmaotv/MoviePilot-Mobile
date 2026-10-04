@@ -3,6 +3,9 @@ package com.moviepilot.app.data.repository
 import com.moviepilot.app.data.model.*
 import com.moviepilot.app.data.network.ApiClient
 import com.moviepilot.app.data.network.ApiService
+import com.moviepilot.app.data.network.DownloadRequest
+import com.moviepilot.app.data.network.MediaIn
+import com.moviepilot.app.data.network.TorrentIn
 import retrofit2.Response
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,62 +17,78 @@ class ResourceRepository @Inject constructor() {
         get() = ApiClient.getApiService()
 
 
+    /**
+     * 下载种子 —— 发送到服务器下载器
+     *
+     * v3.1.0 接口变更：`POST /api/v1/download/` 的请求体字段为
+     *   torrent_in : 种子信息（必填）
+     *   media_in   : 媒体信息（必填）
+     * 而非旧版的 torrent_info / media_info。
+     * 另外必须使用强类型 data class —— `Map<String, Any>` 作为 @Body
+     * 会让 Retrofit 生成含通配符的参数类型并抛
+     * "Parameter type must not include a type variable or wildcard"。
+     */
     suspend fun downloadTorrent(torrent: TorrentSearchResult): Result<Unit> {
         return try {
-            // 构建请求体，把 TorrentSearchResult 转换为 Map
-            val body = mutableMapOf<String, Any>()
-            body["torrent_info"] = mapOf(
-                "site"       to torrent.torrentInfo.site,
-                "site_name"  to torrent.torrentInfo.siteName,
-                "title"      to torrent.torrentInfo.title,
-                "enclosure"  to (torrent.torrentInfo.enclosure ?: ""),
-                "page_url"   to (torrent.torrentInfo.pageUrl ?: ""),
-                "size"       to torrent.torrentInfo.size,
-                "seeders"    to torrent.torrentInfo.seeders,
-                "peers"      to torrent.torrentInfo.peers,
-                "description" to (torrent.torrentInfo.description ?: ""),
-                "pubdate"    to (torrent.torrentInfo.pubDate ?: ""),
-                "volume_factor" to (torrent.torrentInfo.volumeFactor ?: ""),
-                "hit_and_run" to (torrent.torrentInfo.hitAndRun ?: false),
-                "labels"     to (torrent.torrentInfo.labels ?: emptyList<String>()),
-                "uploadvolumefactor"   to (torrent.torrentInfo.uploadVolumeFactor ?: 1.0f),
-                "downloadvolumefactor" to (torrent.torrentInfo.downloadVolumeFactor ?: 1.0f)
+            val info = torrent.torrentInfo
+            val meta = torrent.metaInfo
+
+            // media_in 为必填，优先用媒体信息，否则从 meta_info 兜底构造
+            val mediaIn = torrent.mediaInfo?.toMediaIn()
+                ?: MediaIn(
+                    title = meta?.title ?: meta?.name ?: info.title,
+                    type = meta?.type ?: "未知",
+                    year = meta?.year,
+                    season = meta?.beginSeason ?: 0,
+                    episode = meta?.beginEpisode ?: 0,
+                    resourcePix = meta?.resourcePix,
+                    resourceType = meta?.resourceType,
+                    videoEncode = meta?.videoEncode
+                )
+
+            val body = DownloadRequest(
+                torrentIn = TorrentIn(
+                    site = info.site,
+                    siteName = info.siteName,
+                    title = info.title,
+                    enclosure = info.enclosure,
+                    pageUrl = info.pageUrl,
+                    size = info.size,
+                    seeders = info.seeders,
+                    peers = info.peers,
+                    description = info.description,
+                    pubDate = info.pubDate,
+                    volumeFactor = info.volumeFactor,
+                    hitAndRun = info.hitAndRun ?: false,
+                    labels = info.labels ?: emptyList(),
+                    uploadVolumeFactor = info.uploadVolumeFactor ?: 1.0f,
+                    downloadVolumeFactor = info.downloadVolumeFactor ?: 1.0f,
+                    category = info.category
+                ),
+                mediaIn = mediaIn
             )
-            torrent.metaInfo?.let { meta ->
-                body["meta_info"] = mapOf(
-                    "title"          to (meta.title ?: ""),
-                    "subtitle"       to (meta.subtitle ?: ""),
-                    "type"           to (meta.type ?: ""),
-                    "name"           to (meta.name ?: ""),
-                    "year"           to (meta.year ?: ""),
-                    "resource_pix"   to (meta.resourcePix ?: ""),
-                    "resource_type"  to (meta.resourceType ?: ""),
-                    "video_encode"   to (meta.videoEncode ?: ""),
-                    "begin_season"   to (meta.beginSeason ?: 0),
-                    "begin_episode"  to (meta.beginEpisode ?: 0)
-                )
-            }
-            torrent.mediaInfo?.let { media ->
-                body["media_info"] = mapOf(
-                    "tmdb_id"      to (media.id ?: 0),
-                    "title"        to (media.title ?: ""),
-                    "year"         to (media.year ?: ""),
-                    "type"         to (media.type ?: ""),
-                    "poster_path"  to (media.posterPath ?: ""),
-                    "vote_average" to (media.voteAverage ?: 0.0f)
-                )
-            }
 
             val response = apiService.addDownloadTask(body)
             if (response.isSuccessful) {
                 Result.success(Unit)
             } else {
-                Result.failure(Exception("下载失败: HTTP ${response.code()} ${response.message()}"))
+                Result.failure(
+                    Exception("HTTP ${response.code()} ${response.message()}")
+                )
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
+
+    private fun SearchMediaInfo.toMediaIn() = MediaIn(
+        id = id,
+        title = title ?: "",
+        year = year,
+        type = type,
+        posterPath = posterPath,
+        voteAverage = voteAverage
+    )
 
     suspend fun searchTorrents(keyword: String): Result<List<TorrentSearchResult>> {
         return try {
@@ -86,12 +105,8 @@ class ResourceRepository @Inject constructor() {
 
     suspend fun getLastSearchResults(): Result<List<TorrentSearchResult>> {
         return try {
-            val response = apiService.getLastSearchResults()
-            if (response.success && response.data != null) {
-                Result.success(response.data)
-            } else {
-                Result.success(emptyList())
-            }
+            // v3.1.0：该接口直接返回数组（非 {success,data} 包装）
+            Result.success(apiService.getLastSearchResults())
         } catch (e: Exception) {
             Result.failure(e)
         }

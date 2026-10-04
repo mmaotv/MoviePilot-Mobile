@@ -1,61 +1,86 @@
 # MoviePilot Android - 更新日志
 
-## v2.1 (2026-10-04) - 最新
+## v2.2.2 (2026-10-04) - 最新
 
-适配服务器 MoviePilot v3.1.0，资源搜索改为原生实现并重做筛选。
+服务器端 v3.1.0 全面适配。主体界面回归服务器 PWA，侧边栏为薄入口层。
 
-### 修复问题
+### 修复：PWA 页面在 App 内全部 401（关键修复）
 
-#### 资源搜索筛选只有灰色遮罩
-- **现象**：进入资源搜索后点击筛选，只弹出一层灰色遮罩，筛选面板无法展开；
-  只有点击「综合筛选」入口才能正常打开筛选窗口。
-- **原因**：资源搜索页此前通过 WebView 加载服务器 PWA 页面（`/#/resource`），
-  筛选弹窗由服务器前端渲染。服务器升级到 v3.1.0 后，前端资源指纹发生变化
-  （如主样式由 `style-DVOR5btV.css` 变为 `style-C3NbyNap.css`，体积从
-  650KB 增至 1.1MB），App 内置的旧 PWA 静态资源与新版脚本版本不匹配，
-  弹窗遮罩层缺少新版样式对应的定位/层级规则，因而塌陷成灰块。
-- **解决**：不再依赖服务器前端渲染，资源搜索页改为原生 Compose 实现。
-  筛选面板由 App 自身控制，后续服务器前端升级不会再影响该功能。
+**现象**：浏览器中「下载管理 / 媒体整理 / 文件管理」都正常，App 内点击却是空白或
+提示「服务器连接失败」。
 
-### 新增功能
+**根因**：服务器 PWA 用 Pinia store `auth` 持久化登录 token（localStorage 键 `auth`），
+业务请求经 axios 拦截器带 `Authorization: Bearer <token>`。App 自己的登录走
+`POST /api/v2/login/access-token`，token 只存在 App 侧，**WebView 内的 PWA 拿不到**，
+于是所有页面接口返回 401。
 
-#### 原生资源搜索页
-- 搜索框 + 结果列表 + 一键下载到服务器
-- 未搜索时展示热门推荐（Trending）
+实测证据（向 WebView 注入 fetch 探针）：
+```
+AUTH_LEN=240
+PROBE /api/v1/history/transfer -> 200 len=57919
+PROBE /api/v1/download/         -> 200 len=2
+```
 
-#### 完整筛选面板
-- 7 个多选维度：站点、分辨率、视频编码、资源类型、特效、制作组、分类
-- 选项从当前搜索结果动态提取，并显示每个选项命中的资源条数
-- 体积区间预设（<1GB / 1-5GB / 5-20GB / 20-50GB / >50GB）
-- 最少做种数过滤
-- 仅看免费种 / 仅看促销种开关
-- 5 种排序：综合、体积升降序、做种数、发布时间
-- 筛选按钮实时显示生效条件数量角标
-- 结果统计条显示「筛选后 N / 共 M 条」
-- 筛选无结果时提供一键清除
+**修复**：App 登录后把 token 直接写入 PWA 的 localStorage，并触发一次 reload
+让 store 重新 hydrate。同时**删除**原先模拟填写登录表单的 `attemptAutoLogin`
+（无法建立会话，且脆弱）。
 
-#### 性能
-- 筛选与排序全部在客户端完成，调整条件不重复请求服务器
-- 原始结果缓存于 ViewModel，筛选条件保留至下次搜索
+### 修复：资源搜索筛选只有灰色遮罩
 
-### 技术改进
+弹层 `.v-overlay__content` 在 WebView 中被计算为零尺寸（实测 `h=0 w=0`），
+遮罩层正常但内容不可见。PWA 的 `<meta viewport>` 锁定了缩放
+（`maximum-scale=1.0, user-scalable=no`），与 WebView 缩放设置冲突。
 
-- `MetaInfo` / `TorrentInfoDetail` 模型补全 v3.1.0 字段
-  （`resource_effect`、`video_bit`、`audio_encode`、`edition`、
-  `customization`、`fps`、`web_source`、`apply_words`、
-  `category`、`imdbid`、`date_elapsed` 等）
-- 新增 `ResourceFilter` / `ResourceFilterEngine` / `ResourceFilterDimension`
-  筛选模型与执行器
-- `ResourceViewModel` 增加 `filter` 与 `filteredResults` 状态流
-- 侧边栏点击原生路由时不再加载 PWA 路径，避免 WebView 覆盖原生页
+注入最小约束 CSS 放开弹层内容高度后，筛选面板完整显示
+（季 / 站点 / 视频编码 / 质量 / 分辨率 / 制作组等维度均可展开选择）。
+
+### 修复：入口名称与实际页面不符
+
+| 路由 | 修正前 | 修正后 |
+|---|---|---|
+| `/#/downloading` | 正在下载 | **下载管理** |
+| `/#/history` | 历史记录 | **媒体整理** |
+| `/#/filemanager` | 文件管理 | 文件管理（不变） |
+
+### 修复：登录后闪退
+
+`PreferencesViewModel` 标注 `@Singleton`，原代码用
+`hiltViewModel<PreferencesViewModel>()` 获取会尝试无参构造，抛
+`NoSuchMethodException`，登录成功进入主界面必崩。
+改为由 `MainActivity` 用 `@Inject` 注入后透传。
+
+### 修复：下载与搜索接口适配 v3.1.0
+
+- `POST /api/v1/download/` 请求体字段为 **`torrent_in` + `media_in`**（均必填），
+  非旧版的 `torrent_info` / `media_info`
+- 弃用 `Map<String, Any>` 作为 `@Body`（Retrofit 会生成带通配符的参数类型），
+  改用强类型 data class
+- `/api/v1/search/last` 直接返回**数组**（实测 752 条），非 `{success,data}` 包装
+
+### 架构调整：主体回归 PWA
+
+- 撤销此前的原生资源搜索页实现，**主体界面一律由服务器 PWA 渲染**
+- 侧边栏仅作入口映射，服务器前端升级时无需重新适配
+- 入口补齐至服务器 v3.1.0 实际路由（新增 推荐 / 发现 / 用户管理，共 15 项）
+- `loadPath` 改为整页加载：PWA 的 axios baseURL 是相对路径 `api/v1/`，
+  只改 hash 会导致部分页面基址解析异常
+
+### 视觉统一
+
+启动页、登录页、侧边栏、WebView 区域配色统一为服务器 PWA 主题
+（背景 `#0E1116`、主色 `#8D51F9`），消除原先浅色登录页与深色 PWA 的割裂感。
 
 ### 兼容性
 
-- 服务器端：MoviePilot v3.1.0 及以上
-- 资源搜索接口：`GET /api/v1/search/title?keyword=<关键词>`
-- 登录接口：`POST /api/v2/login/access-token`
+| 项 | 值 |
+|---|---|
+| 服务器端 | MoviePilot **v3.1.0**+ |
+| 最低系统 | Android 8.0 (API 26) |
+| 目标 API | 35 |
 
 ---
+
+## v2.1 (2026-10-04)
 
 ## v1.2 (2026-04-11)
 

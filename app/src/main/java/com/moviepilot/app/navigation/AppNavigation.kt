@@ -60,20 +60,25 @@ data class NavDrawerItem(
 )
 
 object NavRoutes {
+    // ── 侧边栏入口（全部映射到服务器 PWA 页面）────────────────────
     const val DASHBOARD        = "dashboard"
-    const val RANKING          = "ranking"
+    const val RECOMMEND        = "recommend"
+    const val DISCOVER         = "discover"
     const val RESOURCE         = "resource"
     const val SUBSCRIBE_MOVIE  = "subscribe_movie"
     const val SUBSCRIBE_TV     = "subscribe_tv"
     const val CALENDAR         = "calendar"
-    const val DOWNLOADING       = "downloading"
+    const val DOWNLOADING      = "downloading"
     const val HISTORY          = "history"
     const val FILE_MANAGER     = "file_manager"
     const val PLUGINS          = "plugins"
     const val APPS             = "apps"
     const val SITE             = "site"
-    const val SETTINGS         = "settings_pwa"
     const val USER_MANAGEMENT  = "user_management"
+    const val SETTINGS         = "settings_pwa"
+
+    // ── 原生页面（仅用于 PWA 无法覆盖的详情页）───────────────────
+    const val RANKING          = "ranking"
 
     // Media detail (原生)
     const val MEDIA_DETAIL = "media_detail/{mediaType}/{mediaId}"
@@ -91,7 +96,8 @@ fun AppNavigation(
     onLogout: () -> Unit,
     navController: NavHostController = rememberNavController(),
     authViewModel: AuthViewModel = hiltViewModel(),
-    themeManager: ThemeManager? = null
+    themeManager: ThemeManager? = null,
+    preferencesManager: PreferencesManager? = null
 ) {
     var loggedIn by remember { mutableStateOf(isLoggedIn) }
 
@@ -124,7 +130,8 @@ fun AppNavigation(
             },
             onSwitchServer = switchServer,
             onConnectionLost = handleConnectionLost,
-            themeManager = themeManager
+            themeManager = themeManager,
+            preferencesManager = preferencesManager
         )
     }
 }
@@ -137,7 +144,10 @@ fun MainScreen(
     onSwitchServer: () -> Unit = {},
     onConnectionLost: () -> Unit = {},
     themeManager: ThemeManager? = null,
-    preferencesManager: PreferencesManager = hiltViewModel<PreferencesViewModel>().preferencesManager
+    // 注意：PreferencesManager 是 @Singleton，不能用 hiltViewModel() 获取
+    // （那会尝试无参构造并抛 NoSuchMethodException，导致登录成功后必闪退）。
+    // 由 MainActivity 通过 @Inject 注入后传入；为 null 时仅跳过悬浮按钮位置持久化。
+    preferencesManager: PreferencesManager? = null
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -154,7 +164,7 @@ fun MainScreen(
 
     // 启动时读取保存的位置
     LaunchedEffect(Unit) {
-        val savedPos = preferencesManager.getFabPosition()
+        val savedPos = preferencesManager?.getFabPosition()
         if (savedPos != null) {
             isFabCustomized = true
             fabOffsetX = savedPos.first
@@ -174,28 +184,39 @@ fun MainScreen(
     // 当前选中的菜单路由
     var selectedRoute by remember { mutableStateOf(NavRoutes.DASHBOARD) }
 
+    // 侧边栏 = 服务器 PWA 页面的薄入口层
+    //
+    // 设计原则：主体界面一律由服务器 PWA 渲染，侧边栏只负责跳转到
+    // 服务器实际存在的页面。这样服务器前端升级时，手机端无需重新适配，
+    // 也不会出现「原生页 / PWA 页 / 网页」三套渲染逻辑混用导致的
+    // 操作体验割裂。
+    //
+    // 入口清单对齐 MoviePilot v3.1.0 的实际路由（从服务端前端产物核对得出）。
     val navItems = listOf(
         NavDrawerItem(NavRoutes.DASHBOARD,       "仪表盘",     Icons.Filled.Home,          "首页", "/#/dashboard"),
+        NavDrawerItem(NavRoutes.RECOMMEND,       "推荐",       Icons.Filled.Star,          "首页", "/#/recommend"),
+        NavDrawerItem(NavRoutes.DISCOVER,        "发现",       Icons.Filled.Explore,       "首页", "/#/discover"),
         NavDrawerItem(NavRoutes.RESOURCE,        "资源搜索",   Icons.Filled.Search,        "媒体", "/#/resource"),
         NavDrawerItem(NavRoutes.SUBSCRIBE_MOVIE, "电影订阅",   Icons.Filled.PlayArrow,     "媒体", "/#/subscribe/movie"),
-        NavDrawerItem(NavRoutes.SUBSCRIBE_TV,    "剧集订阅",   Icons.Filled.Star,          "媒体", "/#/subscribe/tv"),
-        NavDrawerItem(NavRoutes.CALENDAR,        "Bangumi日历", Icons.Filled.DateRange,  "媒体", "/#/calendar"),
-        NavDrawerItem(NavRoutes.DOWNLOADING,     "正在下载",   Icons.Filled.ArrowForward, "管理", "/#/downloading"),
-        NavDrawerItem(NavRoutes.HISTORY,        "历史记录",   Icons.Filled.Refresh,       "管理", "/#/history"),
-        NavDrawerItem(NavRoutes.FILE_MANAGER,   "文件管理",   Icons.Filled.Info,          "管理", "/#/filemanager"),
-        NavDrawerItem(NavRoutes.PLUGINS,         "插件管理",   Icons.Filled.Build,         "系统", "/#/plugins"),
-        NavDrawerItem(NavRoutes.APPS,            "应用中心",   Icons.Filled.Info,          "系统", "/#/apps"),
-        NavDrawerItem(NavRoutes.SITE,            "站点管理",   Icons.Filled.Warning,       "系统", "/#/site"),
+        NavDrawerItem(NavRoutes.SUBSCRIBE_TV,    "剧集订阅",   Icons.Filled.Subscriptions, "媒体", "/#/subscribe/tv"),
+        NavDrawerItem(NavRoutes.CALENDAR,        "Bangumi日历", Icons.Filled.DateRange,    "媒体", "/#/calendar"),
+        NavDrawerItem(NavRoutes.DOWNLOADING,     "下载管理",   Icons.Filled.ArrowForward,   "管理", "/#/downloading"),
+        NavDrawerItem(NavRoutes.HISTORY,         "媒体整理",   Icons.Filled.History,       "管理", "/#/history"),
+        NavDrawerItem(NavRoutes.FILE_MANAGER,    "文件管理",   Icons.Filled.Folder,        "管理", "/#/filemanager"),
+        NavDrawerItem(NavRoutes.PLUGINS,         "插件管理",   Icons.Filled.Extension,     "系统", "/#/plugins"),
+        NavDrawerItem(NavRoutes.APPS,            "应用中心",   Icons.Filled.Apps,          "系统", "/#/apps"),
+        NavDrawerItem(NavRoutes.SITE,            "站点管理",   Icons.Filled.Language,      "系统", "/#/site"),
+        NavDrawerItem(NavRoutes.USER_MANAGEMENT, "用户管理",   Icons.Filled.People,        "系统", "/#/user"),
         NavDrawerItem(NavRoutes.SETTINGS,        "系统设置",   Icons.Filled.Settings,      "系统", "/#/setting")
     )
 
-    // 路由 → PWA 路径映射
-    // 注意：资源搜索（RESOURCE）已改为原生 Compose 页面实现，
-    // 不再走 PWA。原生实现可完全控制筛选面板，避免服务器前端
-    // 升级后弹窗遮罩与脚本版本错配导致「只有灰罩无法筛选」的问题。
+    // 路由 → PWA 路径映射（与 navItems 一一对应）
     val routeToPath = remember {
         mapOf(
             NavRoutes.DASHBOARD to "/#/dashboard",
+            NavRoutes.RECOMMEND to "/#/recommend",
+            NavRoutes.DISCOVER to "/#/discover",
+            NavRoutes.RESOURCE to "/#/resource",
             NavRoutes.SUBSCRIBE_MOVIE to "/#/subscribe/movie",
             NavRoutes.SUBSCRIBE_TV to "/#/subscribe/tv",
             NavRoutes.CALENDAR to "/#/calendar",
@@ -205,6 +226,7 @@ fun MainScreen(
             NavRoutes.PLUGINS to "/#/plugins",
             NavRoutes.APPS to "/#/apps",
             NavRoutes.SITE to "/#/site",
+            NavRoutes.USER_MANAGEMENT to "/#/user",
             NavRoutes.SETTINGS to "/#/setting"
         )
     }
@@ -216,13 +238,6 @@ fun MainScreen(
 
     // 判断当前是否为 PWA WebView 页面
     val isWebViewRoute = selectedRoute in routeToPath
-
-    // 原生页面的 NavHost 起点：资源搜索是原生页，其余原生入口是媒体详情
-    val startDestination = if (selectedRoute == NavRoutes.RESOURCE) {
-        NavRoutes.RESOURCE
-    } else {
-        NavRoutes.MEDIA_DETAIL
-    }
 
     val backgroundColor = MaterialTheme.colorScheme.background
     val surfaceColor    = MaterialTheme.colorScheme.surface
@@ -356,13 +371,9 @@ fun MainScreen(
                             },
                             selected = selected,
                             onClick = {
-                                // ★ 核心改动：只改 URL，不重建 WebView
+                                // 共享 WebView：只改 URL，不重建实例 → 瞬间切换，无白屏
                                 selectedRoute = item.route
-                                // 原生页面（资源搜索）不加载 PWA 路径，
-                                // 否则 WebView 会切到服务器页面导致原生页被遮盖
-                                if (item.route in routeToPath) {
-                                    loadPath(item.path)
-                                }
+                                loadPath(item.path)
                                 scope.launch { drawerState.close() }
                             },
                             colors = NavigationDrawerItemDefaults.colors(
@@ -520,14 +531,9 @@ fun MainScreen(
                     // 原生页面走 NavHost
                     NavHost(
                         navController = navController,
-                        startDestination = startDestination,
+                        startDestination = NavRoutes.MEDIA_DETAIL,
                         modifier = Modifier.padding(paddingValues)
                     ) {
-                        // 资源搜索（原生实现，含完整筛选面板）
-                        composable(NavRoutes.RESOURCE) {
-                            ResourceScreen()
-                        }
-
                         composable(NavRoutes.MEDIA_DETAIL) { backStackEntry ->
                             val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
                             val mediaId   = backStackEntry.arguments?.getString("mediaId") ?: ""
@@ -565,7 +571,7 @@ fun MainScreen(
                                         onDragEnd = {
                                             // 拖动结束，保存位置
                                             scope.launch {
-                                                preferencesManager.saveFabPosition(fabOffsetX, fabOffsetY)
+                                                preferencesManager?.saveFabPosition(fabOffsetX, fabOffsetY)
                                             }
                                         },
                                         onDragCancel = {},

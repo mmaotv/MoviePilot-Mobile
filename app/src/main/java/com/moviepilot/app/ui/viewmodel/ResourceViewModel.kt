@@ -3,8 +3,6 @@ package com.moviepilot.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moviepilot.app.data.model.MediaInfo
-import com.moviepilot.app.data.model.ResourceFilter
-import com.moviepilot.app.data.model.ResourceFilterEngine
 import com.moviepilot.app.data.model.TorrentSearchResult
 import com.moviepilot.app.data.repository.ResourceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,39 +26,8 @@ class ResourceViewModel @Inject constructor(
     private val _downloadState = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
     val downloadState: StateFlow<Map<String, DownloadState>> = _downloadState
 
-    /** 当前筛选条件 */
-    private val _filter = MutableStateFlow(ResourceFilter.EMPTY)
-    val filter: StateFlow<ResourceFilter> = _filter
-
-    /**
-     * 筛选后的结果列表
-     *
-     * 客户端筛选 + 排序，避免每次调整条件都重新请求服务器。
-     * 原始结果缓存在 [rawResults] 中。
-     */
-    private val _filteredResults = MutableStateFlow<List<TorrentSearchResult>>(emptyList())
-    val filteredResults: StateFlow<List<TorrentSearchResult>> = _filteredResults
-
-    private var rawResults: List<TorrentSearchResult> = emptyList()
-
     init {
         loadTrending()
-    }
-
-    /** 更新筛选条件并立即重算结果 */
-    fun updateFilter(filter: ResourceFilter) {
-        _filter.value = filter
-        recompute()
-    }
-
-    /** 清空所有筛选条件 */
-    fun clearFilter() {
-        _filter.value = ResourceFilter.EMPTY
-        recompute()
-    }
-
-    private fun recompute() {
-        _filteredResults.value = ResourceFilterEngine.apply(rawResults, _filter.value)
     }
 
     fun searchTorrents(keyword: String) {
@@ -68,14 +35,6 @@ class ResourceViewModel @Inject constructor(
             _searchState.value = SearchState.Loading
             resourceRepository.searchTorrents(keyword).fold(
                 onSuccess = { torrents ->
-                    rawResults = torrents
-                    // 新搜索：若已有筛选条件则自动应用；已有关键词时保留
-                    val f = _filter.value
-                    if (f.hasActiveFilter) {
-                        _filteredResults.value = ResourceFilterEngine.apply(torrents, f)
-                    } else {
-                        _filteredResults.value = torrents
-                    }
                     _searchState.value = SearchState.Success(torrents)
                 },
                 onFailure = { error ->
