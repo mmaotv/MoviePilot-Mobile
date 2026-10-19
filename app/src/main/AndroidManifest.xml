@@ -4,8 +4,6 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".MoviePilotApp"
@@ -22,6 +20,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MoviePilot">
             <!-- postSplashScreenTheme 由 SplashScreen API 在运行时切换到 App 主题 -->
             <intent-filter>

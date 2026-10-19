@@ -1,410 +1,560 @@
 package com.moviepilot.app.ui.viewmodel
 
 import android.webkit.CookieManager
+import android.webkit.WebStorage
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moviepilot.app.data.local.PreferencesManager
+import com.moviepilot.app.data.model.AccountProfile
+import com.moviepilot.app.data.model.LoginResponse
 import com.moviepilot.app.data.model.ServerProfile
-import com.moviepilot.app.data.model.UserConfig
+import com.moviepilot.app.data.model.WebUserSeed
+import com.moviepilot.app.data.model.displayServerUrl
+import com.moviepilot.app.data.model.normalizeServerUrl
+import com.moviepilot.app.data.model.parseServerUrl
+import com.moviepilot.app.data.model.serverCandidates
 import com.moviepilot.app.data.network.ApiClient
 import com.moviepilot.app.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import javax.inject.Inject
 
+/**
+ * 登录 / 服务器 / 账号状态。
+ *
+ * 设计前提：除了登录与切换，所有功能都由服务器网页版提供，
+ * 所以这里只维护「当前连哪台服务器、用哪个账号」。
+ */
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val preferencesManager: PreferencesManager
+    private val prefs: PreferencesManager
 ) : ViewModel() {
 
-    private val _loginState = MutableStateFlow<LoginState>(LoginState.Idle)
-    val loginState: StateFlow<LoginState> = _loginState
+    data class UiState(
+        val initializing: Boolean = true,
+        val loggedIn: Boolean = false,
+        /** 用户当前输入的原始地址（可能还没写完，不做规范化） */
+        val serverInput: String = "",
+        /** 规范化后的地址，用于连接与展示；输入非法时为空 */
+        val serverUrl: String = "",
+        val servers: List<ServerProfile> = emptyList(),
+        val accounts: List<AccountProfile> = emptyList(),
+        val currentUsername: String = "",
+        val token: String = "",
+        /**
+         * 写进网页版 localStorage 的 `user` store 快照。
+         * 网页版根路由靠里面的 superUser 决定进主页还是应用中心。
+         */
+        val webUserSeed: String = "",
+        val loginState: LoginState = LoginState.Idle,
+        val panelVisible: Boolean = false,
+        val sessionEpoch: Int = 0,
+        /** 每次切换服务器/账号 +1，登录页据此重置输入框 */
+        val revision: Int = 0,
+        val initialUsername: String = "",
+        val initialPassword: String = "",
+        val rememberPassword: Boolean = false
+    )
 
-    private val _currentUser = MutableStateFlow<UserConfig?>(null)
-    val currentUser: StateFlow<UserConfig?> = _currentUser
+    sealed interface LoginState {
+        data object Idle : LoginState
+        data object Loading : LoginState
+        data class Error(val message: String) : LoginState
+    }
 
-    private val _serverUrl = MutableStateFlow("http://YOUR_SERVER_IP:PORT/")
-    val serverUrl: StateFlow<String> = _serverUrl
+    private val _ui = MutableStateFlow(UiState())
+    val ui: StateFlow<UiState> = _ui.asStateFlow()
 
-    // 是否正在初始化（恢复持久化状态中），为 true 时不显示登录页
-    private val _isInitializing = MutableStateFlow(true)
-    val isInitializing: StateFlow<Boolean> = _isInitializing
-
-    // 记住密码开关
-    private val _rememberPassword = MutableStateFlow(false)
-    val rememberPassword: StateFlow<Boolean> = _rememberPassword
-
-    // ── 多服务器管理 ──────────────────────────────────────────
-
-    private val _serverProfiles = MutableStateFlow<List<ServerProfile>>(emptyList())
-    val serverProfiles: StateFlow<List<ServerProfile>> = _serverProfiles
-
-    private val _activeServerId = MutableStateFlow<String?>(null)
-    val activeServerId: StateFlow<String?> = _activeServerId
-
-    // 连接超时/断开事件，用于通知 UI 层跳转登录页
-    private val _connectionLost = MutableStateFlow<String?>(null)
-    val connectionLost: StateFlow<String?> = _connectionLost
+    /** 服务器地址输入时的账号查询防抖任务 */
+    private var accountsJob: Job? = null
 
     init {
         viewModelScope.launch {
-            try {
-                // 1. 迁移旧版单服务器配置
-                preferencesManager.migrateLegacyServer()
+            runCatching { prefs.migrateIfNeeded() }
 
-                // 2. 加载服务器列表
-                loadServerProfiles()
+            val servers = prefs.getServers()
+            val storedActive = normalizeServerUrl(prefs.getActiveServerUrl().orEmpty())
+            // 没有任何内置地址：没存过就是空，由用户自己输入
+            val activeUrl = storedActive.ifBlank { servers.firstOrNull()?.serverUrl.orEmpty() }
+            if (activeUrl.isNotBlank()) ApiClient.setBaseUrl(activeUrl)
 
-                // 3. 恢复记住密码标志
-                _rememberPassword.value = preferencesManager.getRememberPassword()
+            val accounts = if (activeUrl.isBlank()) emptyList() else accountsOf(activeUrl)
+            val last = accounts.firstOrNull()
 
-                // 4. 恢复激活的服务器
-                val activeId = preferencesManager.getActiveServerId()
-                val profiles = _serverProfiles.value
-
-                val activeProfile = if (activeId != null) {
-                    profiles.find { it.id == activeId }
-                } else {
-                    profiles.find { it.isDefault } ?: profiles.firstOrNull()
-                }
-
-                if (activeProfile != null) {
-                    _activeServerId.value = activeProfile.id
-                    val normalizedUrl = normalizeUrl(activeProfile.serverUrl)
-                    _serverUrl.value = normalizedUrl
-                    ApiClient.setBaseUrl(normalizedUrl)
-
-                    // 如果该服务器有保存的用户名，预填
-                    if (activeProfile.username.isNotEmpty()) {
-                        ApiClient.setCredentials(activeProfile.username, "")
+            var loggedIn = false
+            var token = ""
+            var userSeed = ""
+            val savedToken = prefs.getAuthToken()
+            if (activeUrl.isNotBlank() && !savedToken.isNullOrBlank()) {
+                ApiClient.setAuthToken(savedToken)
+                val session = withTimeoutOrNull(5_000) { authRepository.loadSession() }
+                when (session?.state) {
+                    AuthRepository.TokenState.Valid -> {
+                        loggedIn = true
+                        token = savedToken
+                        userSeed = session.userSeed.orEmpty()
                     }
-                } else {
-                    // 无服务器配置，使用旧版恢复
-                    val savedUrl = preferencesManager.getServerUrl()
-                    val normalizedUrl = normalizeUrl(savedUrl)
-                    _serverUrl.value = normalizedUrl
-                    ApiClient.setBaseUrl(normalizedUrl)
-                }
-
-                // 5. 恢复凭证
-                val credentials = preferencesManager.getCredentials()
-                if (credentials != null) {
-                    ApiClient.setCredentials(credentials.first, credentials.second)
-                }
-
-                // 6. 恢复 token，成功后立即拉取当前用户（保持登录态）
-                val savedToken = preferencesManager.getAuthToken()
-                if (savedToken != null) {
-                    ApiClient.setAuthToken(savedToken)
-                    authRepository.getCurrentUser().fold(
-                        onSuccess = { user ->
-                            _currentUser.value = user
-                            _loginState.value = LoginState.Success(savedToken)
-                        },
-                        onFailure = {
-                            // token 失效，清除本地存储，回到登录页
-                            preferencesManager.clearAuthToken()
-                            preferencesManager.clearCredentials()
-                            ApiClient.setAuthToken("")
-                            ApiClient.clearCredentials()
-                        }
-                    )
-                }
-            } catch (e: Exception) {
-                // 初始化失败，仍允许显示登录页
-                _loginState.value = LoginState.Idle
-            } finally {
-                // 初始化完成，允许 UI 渲染
-                _isInitializing.value = false
-            }
-        }
-    }
-
-    // ── 登录 ─────────────────────────────────────────────────
-
-    fun setServerUrl(url: String) {
-        viewModelScope.launch {
-            val normalizedUrl = normalizeUrl(url)
-            ApiClient.setBaseUrl(normalizedUrl)
-            preferencesManager.saveServerUrl(normalizedUrl)
-            _serverUrl.value = normalizedUrl
-        }
-    }
-
-    fun setRememberPassword(remember: Boolean) {
-        _rememberPassword.value = remember
-        viewModelScope.launch {
-            preferencesManager.saveRememberPassword(remember)
-            if (!remember) {
-                // 取消记住密码时，清除所有服务器配置中保存的密码
-                val profiles = _serverProfiles.value.map {
-                    it.copy(rememberPassword = false, encPassword = "")
-                }
-                preferencesManager.saveServerProfiles(profiles)
-                _serverProfiles.value = profiles
-            }
-        }
-    }
-
-    fun login(username: String, password: String) {
-        viewModelScope.launch {
-            _loginState.value = LoginState.Loading
-            try {
-                // 5 秒超时
-                val result = withTimeoutOrNull(5000L) {
-                    authRepository.login(username, password)
-                }
-                if (result == null) {
-                    // 超时
-                    _loginState.value = LoginState.Error("连接超时，请检查网络或服务器地址")
-                    return@launch
-                }
-                result.fold(
-                    onSuccess = { token ->
-                        // 持久化保存 token
-                        preferencesManager.saveAuthToken(token)
-                        ApiClient.setAuthToken(token)
-
-                        // 根据记住密码标志决定是否保存凭证
-                        if (_rememberPassword.value) {
-                            preferencesManager.saveCredentials(username, password)
-                            ApiClient.setCredentials(username, password)
-                        } else {
-                            // 不记住密码时仍然设置内存凭证（WebView 自动登录需要）
-                            ApiClient.setCredentials(username, password)
-                            preferencesManager.clearCredentials()
-                        }
-
-                        _loginState.value = LoginState.Success(token)
-                        loadCurrentUser()
-
-                        // 更新或创建服务器配置（含密码保存）
-                        upsertCurrentServerProfile(username, password)
-                    },
-                    onFailure = { error ->
-                        _loginState.value = LoginState.Error(error.message ?: "登录失败")
+                    AuthRepository.TokenState.Invalid -> {
+                        // token 确实失效了，清掉；网络异常的情况保留
+                        ApiClient.setAuthToken("")
+                        prefs.clearAuthToken()
                     }
-                )
-            } catch (e: Exception) {
-                _loginState.value = LoginState.Error(e.message ?: "登录失败")
-            }
-        }
-    }
-
-    fun loadCurrentUser() {
-        viewModelScope.launch {
-            authRepository.getCurrentUser().fold(
-                onSuccess = { user ->
-                    _currentUser.value = user
-                },
-                onFailure = {
-                    // Handle error silently
+                    else -> Unit
                 }
+            }
+
+            _ui.value = UiState(
+                initializing = false,
+                loggedIn = loggedIn,
+                serverInput = displayServerUrl(activeUrl),
+                serverUrl = activeUrl,
+                servers = servers,
+                accounts = accounts,
+                currentUsername = if (loggedIn) {
+                    prefs.getCurrentUsername() ?: last?.username.orEmpty()
+                } else "",
+                token = token,
+                webUserSeed = userSeed,
+                initialUsername = last?.username.orEmpty(),
+                initialPassword = last?.let { prefs.decryptPassword(it) }.orEmpty(),
+                rememberPassword = last?.rememberPassword == true
             )
         }
     }
 
+    // ── 登录页输入 ───────────────────────────────────────────────
+
+    /** 用户手动输入服务器地址：原始文本照存，另外维护一份规范化的地址 */
+    fun setServerInput(raw: String) {
+        val normalized = normalizeServerUrl(raw)
+        val changed = normalized != _ui.value.serverUrl
+        _ui.update { it.copy(serverInput = raw, serverUrl = normalized) }
+        if (!changed || normalized.isBlank()) return
+        // 输入的是以前连过的服务器，把它的账号带出来。
+        // 打字过程中地址会不断变化，这里做 300ms 防抖，避免每敲一个字符都读一次 DataStore。
+        accountsJob?.cancel()
+        accountsJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(300)
+            val accounts = accountsOf(normalized)
+            _ui.update { current ->
+                if (current.serverUrl == normalized) current.copy(accounts = accounts) else current
+            }
+        }
+    }
+
+    /** 在登录页的服务器列表里选中一台 */
+    fun selectServer(server: ServerProfile) {
+        viewModelScope.launch {
+            ApiClient.setBaseUrl(server.serverUrl)
+            prefs.setActiveServerUrl(server.serverUrl)
+            prefs.touchServer(server.id)
+            val accounts = accountsOf(server.serverUrl)
+            val servers = prefs.getServers()
+            val last = accounts.firstOrNull()
+            val lastPassword = last?.let { acc -> prefs.decryptPassword(acc) }.orEmpty()
+            _ui.update {
+                it.copy(
+                    serverInput = displayServerUrl(server.serverUrl),
+                    serverUrl = server.serverUrl,
+                    servers = servers,
+                    accounts = accounts,
+                    initialUsername = last?.username.orEmpty(),
+                    initialPassword = lastPassword,
+                    rememberPassword = last?.rememberPassword == true,
+                    loginState = LoginState.Idle,
+                    revision = it.revision + 1
+                )
+            }
+        }
+    }
+
+    // ── 登录 / 退出 ─────────────────────────────────────────────
+
+    /**
+     * 登录。服务器地址以界面上当前输入的内容为准，可以是任意地址。
+     *
+     * 用户没写协议时会自动试 http / https 两个候选，
+     * 内网优先 http、公网域名优先 https。
+     */
+    fun login(serverInput: String, username: String, password: String, rememberPassword: Boolean) {
+        val accountName = username.trim()
+        val candidates = serverCandidates(serverInput)
+        val error = when {
+            serverInput.isBlank() -> "请填写服务器地址"
+            candidates.isEmpty() -> "服务器地址格式不正确，例如 192.168.1.10:3000 或 https://mp.example.com"
+            accountName.isBlank() -> "请填写用户名"
+            password.isEmpty() -> "请填写密码"
+            else -> null
+        }
+        if (error != null) {
+            _ui.update { it.copy(loginState = LoginState.Error(error)) }
+            return
+        }
+
+        viewModelScope.launch {
+            _ui.update { it.copy(loginState = LoginState.Loading) }
+
+            var usedUrl: String? = null
+            var response: LoginResponse? = null
+            var lastError = "登录失败"
+
+            for (candidate in candidates) {
+                ApiClient.setBaseUrl(candidate)
+                val outcome = runCatching {
+                    withTimeoutOrNull(12_000) { authRepository.login(accountName, password) }
+                }.getOrNull()
+
+                if (outcome == null) {
+                    lastError = "连接超时，请检查网络或服务器地址"
+                    continue
+                }
+                val ok = outcome.getOrNull()
+                if (ok != null) {
+                    usedUrl = candidate
+                    response = ok
+                    break
+                }
+                val cause = outcome.exceptionOrNull()
+                lastError = cause?.let { describe(it) } ?: "登录失败"
+                // 服务器已经应答（401/403/404/5xx）说明地址是对的，不用再换协议
+                if (cause is retrofit2.HttpException) break
+            }
+
+            val url = usedUrl
+            val loginResult = response
+            if (url == null || loginResult == null) {
+                _ui.update { it.copy(loginState = LoginState.Error(lastError)) }
+                return@launch
+            }
+
+            val token = loginResult.accessToken
+            ApiClient.setBaseUrl(url)
+            ApiClient.setAuthToken(token)
+            prefs.saveAuthToken(token)
+            prefs.saveCurrentUsername(accountName)
+
+            // 登录响应里通常已经带齐 super_user / permissions；
+            // 老版本没带的话再补一次 /user/current，否则网页版会落到「应用中心」
+            var userSeed = WebUserSeed.fromLogin(loginResult).orEmpty()
+            if (userSeed.isBlank()) {
+                userSeed = withTimeoutOrNull(5_000) { authRepository.loadSession() }
+                    ?.userSeed
+                    .orEmpty()
+            }
+
+            val encPassword = if (rememberPassword) prefs.encryptPassword(password) else ""
+            prefs.upsertAccount(url, accountName, rememberPassword, encPassword)
+            val server = prefs.upsertServer(url)
+            prefs.setActiveServerUrl(server.serverUrl)
+
+            // 换账号必须清掉 WebView 里的旧会话，否则网页版会沿用上一个账号
+            clearWebSession()
+
+            val accounts = accountsOf(url)
+            val servers = prefs.getServers()
+            _ui.update {
+                it.copy(
+                    loggedIn = true,
+                    serverInput = displayServerUrl(url),
+                    serverUrl = url,
+                    servers = servers,
+                    accounts = accounts,
+                    currentUsername = accountName,
+                    token = token,
+                    webUserSeed = userSeed,
+                    loginState = LoginState.Idle,
+                    panelVisible = false,
+                    sessionEpoch = it.sessionEpoch + 1,
+                    initialUsername = accountName,
+                    initialPassword = if (rememberPassword) password else "",
+                    rememberPassword = rememberPassword,
+                    revision = it.revision + 1
+                )
+            }
+        }
+    }
+
+    /** 退出登录：清空会话回到登录页，保留当前服务器与账号用于预填 */
     fun logout() {
         viewModelScope.launch {
-            preferencesManager.clearAuthToken()
-            preferencesManager.clearCredentials()
-            ApiClient.setAuthToken("")
-            ApiClient.clearCredentials()
-            CookieManager.getInstance().removeAllCookies(null)
-            authRepository.logout()
-            _currentUser.value = null
-            _loginState.value = LoginState.Idle
-        }
-    }
-
-    fun resetState() {
-        _loginState.value = LoginState.Idle
-    }
-
-    // ── 连接丢失 ──────────────────────────────────────────────
-
-    fun notifyConnectionLost(message: String) {
-        _connectionLost.value = message
-    }
-
-    fun clearConnectionLost() {
-        _connectionLost.value = null
-    }
-
-    /**
-     * 连接丢失时，清除登录态并回到登录页
-     */
-    fun handleConnectionLost(message: String) {
-        viewModelScope.launch {
-            try {
-                preferencesManager.clearAuthToken()
-                ApiClient.setAuthToken("")
-                _currentUser.value = null
-                _loginState.value = LoginState.Error(message)
-                _connectionLost.value = null
-            } catch (_: Exception) {
-                // 即使出错也要确保 UI 知道连接丢失
-                _connectionLost.value = null
+            val account = _ui.value.accounts.find {
+                it.username.equals(_ui.value.currentUsername, ignoreCase = true)
+            }
+            val rememberedPassword = account?.let { acc -> prefs.decryptPassword(acc) }.orEmpty()
+            clearSession()
+            _ui.update {
+                it.copy(
+                    loggedIn = false,
+                    token = "",
+                    webUserSeed = "",
+                    currentUsername = "",
+                    panelVisible = false,
+                    loginState = LoginState.Idle,
+                    initialUsername = account?.username.orEmpty(),
+                    initialPassword = rememberedPassword,
+                    rememberPassword = account?.rememberPassword == true,
+                    revision = it.revision + 1
+                )
             }
         }
     }
 
-    // ── 多服务器管理 ──────────────────────────────────────────
-
-    private suspend fun loadServerProfiles() {
-        _serverProfiles.value = preferencesManager.getServerProfiles()
-        _activeServerId.value = preferencesManager.getActiveServerId()
+    fun switchServer(server: ServerProfile) {
+        viewModelScope.launch {
+            clearSession()
+            ApiClient.setBaseUrl(server.serverUrl)
+            prefs.setActiveServerUrl(server.serverUrl)
+            prefs.touchServer(server.id)
+            val accounts = accountsOf(server.serverUrl)
+            val servers = prefs.getServers()
+            val last = accounts.firstOrNull()
+            val lastPassword = last?.let { acc -> prefs.decryptPassword(acc) }.orEmpty()
+            _ui.update {
+                it.copy(
+                    loggedIn = false,
+                    serverInput = displayServerUrl(server.serverUrl),
+                    serverUrl = server.serverUrl,
+                    servers = servers,
+                    accounts = accounts,
+                    currentUsername = "",
+                    token = "",
+                    webUserSeed = "",
+                    panelVisible = false,
+                    loginState = LoginState.Idle,
+                    initialUsername = last?.username.orEmpty(),
+                    initialPassword = lastPassword,
+                    rememberPassword = last?.rememberPassword == true,
+                    revision = it.revision + 1
+                )
+            }
+        }
     }
 
+    fun switchAccount(account: AccountProfile) {
+        viewModelScope.launch {
+            clearSession()
+            ApiClient.setBaseUrl(account.serverUrl)
+            prefs.setActiveServerUrl(account.serverUrl)
+            prefs.touchAccount(account.id)
+            val accounts = accountsOf(account.serverUrl)
+            val servers = prefs.getServers()
+            val savedPassword = prefs.decryptPassword(account).orEmpty()
+            _ui.update {
+                it.copy(
+                    loggedIn = false,
+                    serverInput = displayServerUrl(account.serverUrl),
+                    serverUrl = account.serverUrl,
+                    servers = servers,
+                    accounts = accounts,
+                    currentUsername = "",
+                    token = "",
+                    webUserSeed = "",
+                    panelVisible = false,
+                    loginState = LoginState.Idle,
+                    initialUsername = account.username,
+                    initialPassword = savedPassword,
+                    rememberPassword = account.rememberPassword,
+                    revision = it.revision + 1
+                )
+            }
+        }
+    }
+
+    /** 新增账号：回到登录页，服务器保持不变，账号密码清空 */
+    fun prepareNewAccount() {
+        viewModelScope.launch {
+            clearSession()
+            _ui.update {
+                it.copy(
+                    loggedIn = false,
+                    token = "",
+                    webUserSeed = "",
+                    currentUsername = "",
+                    panelVisible = false,
+                    loginState = LoginState.Idle,
+                    initialUsername = "",
+                    initialPassword = "",
+                    rememberPassword = false,
+                    revision = it.revision + 1
+                )
+            }
+        }
+    }
+
+    // ── 服务器 / 账号管理 ────────────────────────────────────────
+
     /**
-     * 登录成功后，更新或创建当前服务器的 ServerProfile
-     * 如果 rememberPassword=true，加密保存密码到 encPassword
+     * 切换到用户输入的任意地址：存进历史列表并回到登录页。
+     * 地址解析不出来返回 false（此时不改任何状态）。
      */
-    private suspend fun upsertCurrentServerProfile(username: String, password: String) {
-        val currentUrl = ApiClient.getBaseUrl()
-        val profiles = _serverProfiles.value.toMutableList()
-        val remember = _rememberPassword.value
+    fun connectToServer(rawUrl: String, name: String = ""): Boolean {
+        val url = parseServerUrl(rawUrl) ?: return false
+        viewModelScope.launch {
+            val server = prefs.upsertServer(url, name.trim())
+            clearSession()
+            prefs.setActiveServerUrl(server.serverUrl)
+            ApiClient.setBaseUrl(server.serverUrl)
+            val accounts = accountsOf(server.serverUrl)
+            val servers = prefs.getServers()
+            val last = accounts.firstOrNull()
+            val lastPassword = last?.let { acc -> prefs.decryptPassword(acc) }.orEmpty()
+            _ui.update {
+                it.copy(
+                    loggedIn = false,
+                    serverInput = displayServerUrl(server.serverUrl),
+                    serverUrl = server.serverUrl,
+                    servers = servers,
+                    accounts = accounts,
+                    currentUsername = "",
+                    token = "",
+                    webUserSeed = "",
+                    panelVisible = false,
+                    loginState = LoginState.Idle,
+                    initialUsername = last?.username.orEmpty(),
+                    initialPassword = lastPassword,
+                    rememberPassword = last?.rememberPassword == true,
+                    revision = it.revision + 1
+                )
+            }
+        }
+        return true
+    }
 
-        // 加密失败时返回空字符串，不影响登录流程
-        val encPwd = if (remember) runCatching {
-            preferencesManager.encryptPassword(password)
-        }.getOrDefault("") else ""
+    fun deleteServer(id: String) {
+        viewModelScope.launch {
+            val deleted = _ui.value.servers.find { it.id == id } ?: return@launch
+            val wasActive = deleted.serverUrl == _ui.value.serverUrl
+            prefs.deleteServer(id)
+            val servers = prefs.getServers()
+            val next = servers.firstOrNull()
+            val nextAccounts = next?.let { accountsOf(it.serverUrl) }.orEmpty()
+            if (wasActive) {
+                clearSession()
+                ApiClient.setBaseUrl(next?.serverUrl.orEmpty())
+                _ui.update {
+                    it.copy(
+                        loggedIn = false,
+                        servers = servers,
+                        // 删光了就是空，回到「自己输地址」的状态
+                        serverInput = displayServerUrl(next?.serverUrl.orEmpty()),
+                        serverUrl = next?.serverUrl.orEmpty(),
+                        accounts = nextAccounts,
+                        currentUsername = "",
+                        token = "",
+                        webUserSeed = "",
+                        panelVisible = false,
+                        initialUsername = "",
+                        initialPassword = "",
+                        rememberPassword = false,
+                        revision = it.revision + 1
+                    )
+                }
+            } else {
+                _ui.update { it.copy(servers = servers) }
+            }
+        }
+    }
 
-        // 查找是否已有相同 URL 的配置
-        val existing = profiles.find { normalizeUrl(it.serverUrl) == normalizeUrl(currentUrl) }
-        if (existing != null) {
-            // 更新用户名、密码和最后使用时间
-            val updated = existing.copy(
-                username = username,
-                rememberPassword = remember,
-                encPassword = encPwd,
-                lastUsedAt = System.currentTimeMillis()
-            )
-            profiles[profiles.indexOf(existing)] = updated
-            preferencesManager.saveServerProfiles(profiles)
-            preferencesManager.setActiveServerId(updated.id)
-            _activeServerId.value = updated.id
+    fun deleteAccount(id: String) {
+        viewModelScope.launch {
+            val account = _ui.value.accounts.find { it.id == id } ?: return@launch
+            val isCurrent = account.username.equals(_ui.value.currentUsername, ignoreCase = true)
+            prefs.deleteAccount(id)
+            val remaining = accountsOf(account.serverUrl)
+            if (isCurrent && _ui.value.loggedIn) {
+                clearSession()
+                _ui.update {
+                    it.copy(
+                        loggedIn = false,
+                        currentUsername = "",
+                        token = "",
+                        webUserSeed = "",
+                        panelVisible = false,
+                        accounts = remaining,
+                        revision = it.revision + 1
+                    )
+                }
+            } else {
+                _ui.update { it.copy(accounts = remaining) }
+            }
+        }
+    }
+
+    // ── 面板 ─────────────────────────────────────────────────────
+
+    fun setPanelVisible(visible: Boolean) {
+        if (visible == _ui.value.panelVisible) return
+        if (visible) viewModelScope.launch {
+            // 打开面板时刷新一下服务器列表，防止在其他地方新增后没有同步
+            val servers = prefs.getServers()
+            _ui.update { it.copy(servers = servers, panelVisible = true) }
         } else {
-            // 新建配置
-            val name = runCatching {
-                java.net.URL(currentUrl).host
-            }.getOrDefault(currentUrl)
-            val newProfile = ServerProfile(
-                name = name,
-                serverUrl = currentUrl,
-                username = username,
-                rememberPassword = remember,
-                encPassword = encPwd,
-                isDefault = profiles.isEmpty(),
-                lastUsedAt = System.currentTimeMillis()
-            )
-            profiles.add(newProfile)
-            preferencesManager.saveServerProfiles(profiles)
-            preferencesManager.setActiveServerId(newProfile.id)
-            _activeServerId.value = newProfile.id
+            _ui.update { it.copy(panelVisible = false) }
         }
-
-        _serverProfiles.value = profiles
     }
 
-    /**
-     * 切换到指定服务器（用户快速切换）
-     * - 清除当前登录态
-     * - 加载目标服务器的 baseUrl
-     * - 自动填充用户名，如果 rememberPassword=true 则自动填充密码
-     * - 如果有保存的 token，尝试自动登录
-     */
-    fun switchToServer(profile: ServerProfile) {
-        viewModelScope.launch {
-            // 1. 清除当前 WebView Cookie
-            CookieManager.getInstance().removeAllCookies(null)
+    fun passwordOf(account: AccountProfile): String = prefs.decryptPassword(account).orEmpty()
 
-            // 2. 清除当前 token 和凭证
-            ApiClient.setAuthToken("")
-            ApiClient.clearCredentials()
-            preferencesManager.clearAuthToken()
-            preferencesManager.clearCredentials()
+    suspend fun fabPosition(): Pair<Float, Float>? = prefs.getFabPosition()
 
-            // 3. 切换到新服务器
-            val normalizedUrl = normalizeUrl(profile.serverUrl)
-            ApiClient.setBaseUrl(normalizedUrl)
-            _serverUrl.value = normalizedUrl
+    fun saveFabPosition(x: Float, y: Float) {
+        viewModelScope.launch { prefs.saveFabPosition(x, y) }
+    }
 
-            // 4. 更新激活服务器
-            preferencesManager.setActiveServerId(profile.id)
-            preferencesManager.saveServerUrl(normalizedUrl)
-            _activeServerId.value = profile.id
+    // ── 内部 ─────────────────────────────────────────────────────
 
-            // 5. 更新最后使用时间
-            val profiles = _serverProfiles.value.toMutableList()
-            val idx = profiles.indexOfFirst { it.id == profile.id }
-            if (idx >= 0) {
-                profiles[idx] = profiles[idx].copy(lastUsedAt = System.currentTimeMillis())
-                preferencesManager.saveServerProfiles(profiles)
-                _serverProfiles.value = profiles
+    private suspend fun accountsOf(serverUrl: String): List<AccountProfile> {
+        val normalized = normalizeServerUrl(serverUrl)
+        return prefs.getAccounts()
+            .filter { it.serverUrl == normalized }
+            .sortedByDescending { it.lastUsedAt }
+    }
+
+    private suspend fun clearSession() {
+        runCatching { prefs.clearAuthToken() }
+        runCatching { prefs.clearCurrentUsername() }
+        ApiClient.setAuthToken("")
+        ApiClient.clearCredentials()
+        clearWebSession()
+    }
+
+    private fun clearWebSession() {
+        runCatching {
+            CookieManager.getInstance().removeAllCookies {
+                CookieManager.getInstance().flush()
             }
-
-            // 6. 恢复记住密码标志
-            _rememberPassword.value = profile.rememberPassword
-
-            // 7. 清除当前用户，回到登录页（UI 层会读取 profile 自动填充）
-            _currentUser.value = null
-            _loginState.value = LoginState.Idle
         }
+        runCatching { WebStorage.getInstance().deleteAllData() }
     }
 
-    /**
-     * 获取指定服务器的解密密码，用于自动填充
-     */
-    fun getDecryptedPassword(profile: ServerProfile): String? {
-        return preferencesManager.decryptServerPassword(profile)
-    }
-
-    fun addServerProfile(profile: ServerProfile) {
-        viewModelScope.launch {
-            preferencesManager.addServerProfile(profile)
-            loadServerProfiles()
+    private fun describe(error: Throwable): String {
+        var cause: Throwable? = error
+        while (cause != null) {
+            when (cause) {
+                is UnknownHostException -> return "无法解析服务器地址"
+                is ConnectException -> return "无法连接服务器，请检查地址与端口"
+                is SocketTimeoutException -> return "连接超时，请检查网络"
+                is retrofit2.HttpException -> return when (cause.code()) {
+                    401 -> "账号或密码错误"
+                    403 -> "账号被禁用或没有权限"
+                    404 -> "服务器地址不是 MoviePilot 服务"
+                    in 500..599 -> "服务器内部错误（${cause.code()}）"
+                    else -> "登录失败（HTTP ${cause.code()}）"
+                }
+            }
+            cause = cause.cause
         }
-    }
-
-    fun updateServerProfile(profile: ServerProfile) {
-        viewModelScope.launch {
-            preferencesManager.updateServerProfile(profile)
-            loadServerProfiles()
-        }
-    }
-
-    fun deleteServerProfile(profileId: String) {
-        viewModelScope.launch {
-            preferencesManager.deleteServerProfile(profileId)
-            loadServerProfiles()
-        }
-    }
-
-    fun refreshServerProfiles() {
-        viewModelScope.launch {
-            loadServerProfiles()
-        }
-    }
-
-    // ── 工具方法 ─────────────────────────────────────────────
-
-    private fun normalizeUrl(url: String): String {
-        val withScheme = when {
-            url.startsWith("http://") || url.startsWith("https://") -> url
-            else -> "http://$url"
-        }
-        return if (withScheme.endsWith("/")) withScheme else "$withScheme/"
-    }
-
-    sealed class LoginState {
-        object Idle : LoginState()
-        object Loading : LoginState()
-        data class Success(val token: String) : LoginState()
-        data class Error(val message: String) : LoginState()
+        return error.message ?: "登录失败"
     }
 }

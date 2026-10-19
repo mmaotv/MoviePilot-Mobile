@@ -14,8 +14,8 @@ android {
         applicationId = "com.moviepilot.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "2.2.2"
+        versionCode = 12
+        versionName = "3.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -56,6 +56,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -70,22 +71,16 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
 
-    // Navigation
-    implementation(libs.androidx.navigation.compose)
-
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 
-    // Retrofit & OkHttp
+    // Retrofit & OkHttp（只用于登录与 token 校验）
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
-
-    // Coil for image loading
-    implementation(libs.coil.compose)
 
     // SplashScreen
     implementation(libs.androidx.splashscreen)

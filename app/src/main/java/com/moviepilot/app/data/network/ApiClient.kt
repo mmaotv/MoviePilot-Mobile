@@ -20,9 +20,13 @@ import javax.inject.Singleton
  * - credentials 只保存在内存中（磁盘侧由 PreferencesManager + AES 加密存储）。
  */
 object ApiClient {
-    private const val DEFAULT_URL = "http://YOUR_SERVER_IP:PORT/"
+    /**
+     * 不设任何内置服务器地址：地址一律由用户输入。
+     * 空串时 Retrofit 用占位地址构建（登录前不会有请求发出去）。
+     */
+    private const val PLACEHOLDER_URL = "http://127.0.0.1/"
 
-    @Volatile private var _baseUrl: String = DEFAULT_URL
+    @Volatile private var _baseUrl: String = ""
     @Volatile private var _authToken: String? = null
     @Volatile private var _username: String? = null
     @Volatile private var _password: String? = null
@@ -31,7 +35,7 @@ object ApiClient {
     // ── URL ──────────────────────────────────────────────────────
 
     fun setBaseUrl(url: String) {
-        val normalized = url.trimEnd('/') + "/"
+        val normalized = if (url.isBlank()) "" else url.trimEnd('/') + "/"
         if (_baseUrl != normalized) {
             _baseUrl = normalized
             invalidate()
@@ -39,6 +43,11 @@ object ApiClient {
     }
 
     fun getBaseUrl(): String = _baseUrl
+
+    /** 当前服务器的主机名（不含协议/端口/路径），用于本地资源拦截与域名判断 */
+    fun getBaseUrlHost(): String = runCatching {
+        java.net.URI(_baseUrl).host.orEmpty()
+    }.getOrDefault("")
 
     // ── Token ────────────────────────────────────────────────────
 
@@ -77,27 +86,33 @@ object ApiClient {
 
     private fun buildApiService(): ApiService {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            // BODY 会把登录密码打进 logcat，release 关闭
+            level = if (com.moviepilot.app.BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BODY
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
         }
 
         val auth = Interceptor { chain ->
             val req = chain.request().newBuilder().apply {
                 _authToken?.let { addHeader("Authorization", "Bearer $it") }
-                addHeader("Content-Type", "application/json")
             }.build()
             chain.proceed(req)
         }
 
+        // 只用于登录与 token 校验：超时时间短一点，避免服务器不可达时
+        // 启动页卡住十几秒。
         val client = OkHttpClient.Builder()
             .addInterceptor(auth)
             .addInterceptor(logging)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .writeTimeout(8, TimeUnit.SECONDS)
             .build()
 
         return Retrofit.Builder()
-            .baseUrl(_baseUrl)
+            .baseUrl(_baseUrl.ifBlank { PLACEHOLDER_URL })
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

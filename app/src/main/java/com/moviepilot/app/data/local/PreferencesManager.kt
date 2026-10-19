@@ -4,16 +4,18 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
+import com.moviepilot.app.data.model.AccountProfile
 import com.moviepilot.app.data.model.ServerProfile
-import kotlinx.coroutines.flow.Flow
+import com.moviepilot.app.data.model.displayServerUrl
+import com.moviepilot.app.data.model.normalizeServerUrl
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.security.KeyStore
@@ -27,44 +29,36 @@ import javax.inject.Singleton
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
 /**
- * 使用 Android Keystore + AES-GCM 对敏感字段进行加密存储。
- * 密钥由系统硬件/TEE 管理，应用外无法导出。
- * 支持多服务器配置（ServerProfile JSON 数组）。
+ * 本地配置存储。
+ *
+ * - 服务器列表、账号列表分开存（同一服务器可多账号）
+ * - token 只保存当前会话
+ * - 密码用 Android Keystore + AES-GCM 加密
+ * - 首次启动会把 v2 的 server_profiles 迁移到新结构
  */
 @Singleton
 class PreferencesManager @Inject constructor(
     private val context: Context
 ) {
     companion object {
-        val SERVER_URL = stringPreferencesKey("server_url")
-        val AUTH_TOKEN = stringPreferencesKey("auth_token")
-        val USERNAME = stringPreferencesKey("username")
-        /** 存储格式：Base64(IV) + ":" + Base64(密文) */
-        val PASSWORD = stringPreferencesKey("password_enc")
-        const val DEFAULT_SERVER_URL = "http://YOUR_SERVER_IP:PORT/"
+        private val SERVERS = stringPreferencesKey("mp_servers")
+        private val ACCOUNTS = stringPreferencesKey("mp_accounts")
+        private val ACTIVE_SERVER = stringPreferencesKey("mp_active_server")
+        private val AUTH_TOKEN = stringPreferencesKey("auth_token")
+        private val CURRENT_USER = stringPreferencesKey("mp_current_user")
+        private val MIGRATED = booleanPreferencesKey("mp_migrated_v3")
+        private val NAME_FIXED = booleanPreferencesKey("mp_names_fixed")
 
-        /** 全局记住密码开关 */
-        val REMEMBER_PASSWORD = booleanPreferencesKey("remember_password")
+        private val FAB_POS_X = floatPreferencesKey("fab_pos_x")
+        private val FAB_POS_Y = floatPreferencesKey("fab_pos_y")
+        private val FAB_CUSTOMIZED = booleanPreferencesKey("fab_customized")
 
-        /** 多服务器列表：JSON 数组 */
-        val SERVER_PROFILES = stringPreferencesKey("server_profiles")
-        /** 当前激活的服务器 ID */
-        val ACTIVE_SERVER_ID = stringPreferencesKey("active_server_id")
-        
-        /** 主题设置：0=系统默认, 1=浅色, 2=深色 */
-        val THEME_MODE = stringPreferencesKey("theme_mode")
-        
-        /** 通知开关 */
-        val NOTIFICATION_ENABLED = booleanPreferencesKey("notification_enabled")
-        val DOWNLOAD_NOTIFICATION_ENABLED = booleanPreferencesKey("download_notification_enabled")
-        val NEW_CONTENT_NOTIFICATION_ENABLED = booleanPreferencesKey("new_content_notification_enabled")
-        val ALERT_NOTIFICATION_ENABLED = booleanPreferencesKey("alert_notification_enabled")
-
-        /** 悬浮按钮位置 */
-        val FAB_POS_X = floatPreferencesKey("fab_pos_x")
-        val FAB_POS_Y = floatPreferencesKey("fab_pos_y")
-        /** 悬浮按钮是否已手动调整过位置 */
-        val FAB_CUSTOMIZED = booleanPreferencesKey("fab_customized")
+        // ── v2 旧键，仅用于迁移 ──────────────────────────────────
+        private val LEGACY_PROFILES = stringPreferencesKey("server_profiles")
+        private val LEGACY_SERVER_URL = stringPreferencesKey("server_url")
+        private val LEGACY_USERNAME = stringPreferencesKey("username")
+        private val LEGACY_PASSWORD = stringPreferencesKey("password_enc")
+        private val LEGACY_REMEMBER = booleanPreferencesKey("remember_password")
 
         private const val KEYSTORE_ALIAS = "moviepilot_cred_key"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -72,9 +66,20 @@ class PreferencesManager @Inject constructor(
         private const val GCM_TAG_LENGTH = 128
 
         private val gson = Gson()
+
+        private data class LegacyProfile(
+            val id: String? = null,
+            val name: String? = null,
+            @SerializedName("server_url") val serverUrl: String? = null,
+            val username: String? = null,
+            @SerializedName("remember_password") val rememberPassword: Boolean = false,
+            @SerializedName("enc_password") val encPassword: String? = null,
+            @SerializedName("is_default") val isDefault: Boolean = false,
+            @SerializedName("last_used_at") val lastUsedAt: Long = 0L
+        )
     }
 
-    // ── Keystore 密钥管理 ──────────────────────────────────────────
+    // ── Keystore ─────────────────────────────────────────────────
 
     private fun getOrCreateSecretKey(): SecretKey? = runCatching {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -94,10 +99,6 @@ class PreferencesManager @Inject constructor(
         keyGen.generateKey()
     }.getOrNull()
 
-    /**
-     * 加密明文，返回 Base64(IV):Base64(密文)
-     * 失败时返回空字符串（密码不保存，跳过记住密码功能）
-     */
     private fun encrypt(plaintext: String): String = runCatching {
         val key = getOrCreateSecretKey() ?: return ""
         val cipher = Cipher.getInstance(AES_MODE)
@@ -107,7 +108,6 @@ class PreferencesManager @Inject constructor(
         "${Base64.encodeToString(iv, Base64.NO_WRAP)}:${Base64.encodeToString(cipherBytes, Base64.NO_WRAP)}"
     }.getOrDefault("")
 
-    /** 解密 Base64(IV):Base64(密文)，失败时返回 null */
     private fun decrypt(encoded: String): String? = runCatching {
         val parts = encoded.split(":")
         if (parts.size != 2) return null
@@ -118,325 +118,296 @@ class PreferencesManager @Inject constructor(
         String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
     }.getOrNull()
 
-    // ── 服务器地址（兼容旧版单服务器）────────────────────────────────
+    fun encryptPassword(password: String): String = encrypt(password)
 
-    suspend fun saveServerUrl(url: String) {
-        context.dataStore.edit { preferences ->
-            preferences[SERVER_URL] = url
+    fun decryptPassword(account: AccountProfile): String? {
+        if (!account.rememberPassword || account.encPassword.isBlank()) return null
+        return runCatching { decrypt(account.encPassword) }.getOrNull()
+    }
+
+    // ── 服务器 ───────────────────────────────────────────────────
+
+    suspend fun getServers(): List<ServerProfile> {
+        val json = runCatching {
+            context.dataStore.data.map { prefs -> prefs[SERVERS] }.first()
+        }.getOrNull()
+        if (json.isNullOrBlank()) return emptyList()
+        val type = object : TypeToken<List<ServerProfile>>() {}.type
+        return runCatching { gson.fromJson<List<ServerProfile>>(json, type) }
+            .getOrNull()
+            ?.sortedByDescending { it.lastUsedAt }
+            ?: emptyList()
+    }
+
+    suspend fun saveServers(servers: List<ServerProfile>) {
+        context.dataStore.edit { it[SERVERS] = gson.toJson(servers) }
+    }
+
+    suspend fun upsertServer(url: String, name: String = ""): ServerProfile {
+        val normalized = normalizeServerUrl(url)
+        val servers = getServers().toMutableList()
+        val existing = servers.find { it.serverUrl == normalized }
+        if (existing != null) {
+            val updated = existing.copy(
+                name = name.ifBlank { existing.name },
+                lastUsedAt = System.currentTimeMillis()
+            )
+            servers[servers.indexOf(existing)] = updated
+            saveServers(servers)
+            return updated
         }
-    }
-
-    val serverUrlFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[SERVER_URL] ?: DEFAULT_SERVER_URL
-    }
-
-    suspend fun getServerUrl(): String {
-        return context.dataStore.data.map { preferences ->
-            preferences[SERVER_URL] ?: DEFAULT_SERVER_URL
-        }.first()
-    }
-
-    // ── Token ─────────────────────────────────────────────────────
-
-    suspend fun saveAuthToken(token: String) {
-        context.dataStore.edit { preferences ->
-            preferences[AUTH_TOKEN] = token
-        }
-    }
-
-    suspend fun getAuthToken(): String? {
-        return context.dataStore.data.map { preferences ->
-            preferences[AUTH_TOKEN]
-        }.first()
-    }
-
-    suspend fun clearAuthToken() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(AUTH_TOKEN)
-        }
-    }
-
-    suspend fun clearAll() {
-        context.dataStore.edit { preferences ->
-            preferences.clear()
-        }
-    }
-
-    // ── 记住密码标志 ────────────────────────────────────────────────
-
-    suspend fun saveRememberPassword(remember: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[REMEMBER_PASSWORD] = remember
-        }
-    }
-
-    suspend fun getRememberPassword(): Boolean {
-        return context.dataStore.data.map { preferences ->
-            preferences[REMEMBER_PASSWORD] ?: false
-        }.first()
-    }
-
-    // ── 用户名 & 密码（密码 AES-GCM 加密）───────────────────────────
-
-    suspend fun saveCredentials(username: String, password: String) {
-        val encryptedPassword = encrypt(password)
-        context.dataStore.edit { preferences ->
-            preferences[USERNAME] = username
-            preferences[PASSWORD] = encryptedPassword
-        }
-    }
-
-    suspend fun getCredentials(): Pair<String, String>? {
-        return context.dataStore.data.map { preferences ->
-            val u = preferences[USERNAME]
-            val enc = preferences[PASSWORD]
-            if (u != null && enc != null) {
-                val p = decrypt(enc) ?: return@map null
-                Pair(u, p)
-            } else null
-        }.first()
-    }
-
-    suspend fun clearCredentials() {
-        context.dataStore.edit { preferences ->
-            preferences.remove(USERNAME)
-            preferences.remove(PASSWORD)
-        }
-    }
-
-    // ── 多服务器配置（ServerProfile 列表）─────────────────────────────
-
-    suspend fun getServerProfiles(): List<ServerProfile> {
-        return context.dataStore.data.map { preferences ->
-            val json = preferences[SERVER_PROFILES]
-            if (json.isNullOrBlank()) {
-                emptyList()
-            } else {
-                val type = object : TypeToken<List<ServerProfile>>() {}.type
-                gson.fromJson<List<ServerProfile>>(json, type) ?: emptyList()
-            }
-        }.first()
-    }
-
-    suspend fun saveServerProfiles(profiles: List<ServerProfile>) {
-        val json = gson.toJson(profiles)
-        context.dataStore.edit { preferences ->
-            preferences[SERVER_PROFILES] = json
-        }
-    }
-
-    suspend fun addServerProfile(profile: ServerProfile) {
-        val profiles = getServerProfiles().toMutableList()
-        // 如果设为默认，清除其他默认标记
-        if (profile.isDefault) {
-            profiles.replaceAll { it.copy(isDefault = false) }
-        }
-        profiles.add(profile)
-        saveServerProfiles(profiles)
-    }
-
-    suspend fun updateServerProfile(profile: ServerProfile) {
-        val profiles = getServerProfiles().toMutableList()
-        val idx = profiles.indexOfFirst { it.id == profile.id }
-        if (idx >= 0) {
-            // 如果设为默认，清除其他默认标记
-            if (profile.isDefault) {
-                profiles.replaceAll { it.copy(isDefault = false) }
-            }
-            profiles[idx] = profile
-            saveServerProfiles(profiles)
-        }
-    }
-
-    suspend fun deleteServerProfile(profileId: String) {
-        val profiles = getServerProfiles().filter { it.id != profileId }
-        saveServerProfiles(profiles)
-        // 如果删除的是当前激活的，清除 activeServerId
-        val activeId = getActiveServerId()
-        if (activeId == profileId) {
-            setActiveServerId(null)
-        }
-    }
-
-    suspend fun getActiveServerId(): String? {
-        return context.dataStore.data.map { preferences ->
-            preferences[ACTIVE_SERVER_ID]
-        }.first()
-    }
-
-    suspend fun setActiveServerId(id: String?) {
-        context.dataStore.edit { preferences ->
-            if (id != null) {
-                preferences[ACTIVE_SERVER_ID] = id
-            } else {
-                preferences.remove(ACTIVE_SERVER_ID)
-            }
-        }
-    }
-
-    /**
-     * 获取默认服务器，优先返回 isDefault 的，否则返回第一个
-     */
-    suspend fun getDefaultServerProfile(): ServerProfile? {
-        val profiles = getServerProfiles()
-        return profiles.find { it.isDefault } ?: profiles.firstOrNull()
-    }
-
-    /**
-     * 迁移旧版单服务器配置到多服务器列表
-     * 只在列表为空时执行一次
-     * 失败时静默跳过，不影响应用启动
-     */
-    suspend fun migrateLegacyServer(): ServerProfile? = runCatching {
-        val profiles = getServerProfiles()
-        if (profiles.isNotEmpty()) return null
-
-        val url = getServerUrl()
-        val credentials = getCredentials()
-        if (url == DEFAULT_SERVER_URL && credentials == null) return null
-
-        val rememberPwd = getRememberPassword()
-        val encPwd = if (rememberPwd && credentials != null) encrypt(credentials.second) else ""
-
-        val profile = ServerProfile(
-            name = "默认服务器",
-            serverUrl = url,
-            username = credentials?.first ?: "",
-            rememberPassword = rememberPwd,
-            encPassword = encPwd,
-            isDefault = true
+        val created = ServerProfile(
+            name = name.ifBlank { displayServerUrl(normalized) },
+            serverUrl = normalized
         )
-        addServerProfile(profile)
-        setActiveServerId(profile.id)
-        profile
+        servers.add(created)
+        saveServers(servers)
+        return created
+    }
+
+    suspend fun deleteServer(id: String) {
+        val server = getServers().find { it.id == id } ?: return
+        saveServers(getServers().filterNot { it.id == id })
+        saveAccounts(getAccounts().filterNot { it.serverUrl == server.serverUrl })
+        if (getActiveServerUrl() == server.serverUrl) {
+            setActiveServerUrl(getServers().firstOrNull()?.serverUrl)
+        }
+    }
+
+    suspend fun touchServer(id: String) {
+        val servers = getServers().toMutableList()
+        val idx = servers.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            servers[idx] = servers[idx].copy(lastUsedAt = System.currentTimeMillis())
+            saveServers(servers)
+        }
+    }
+
+    suspend fun getActiveServerUrl(): String? = runCatching {
+        context.dataStore.data.map { it[ACTIVE_SERVER] }.first()
     }.getOrNull()
 
-    /**
-     * 根据 ServerProfile 获取解密后的密码
-     * 仅当 rememberPassword=true 且 encPassword 非空时返回
-     * 解密失败时返回 null，不影响应用运行
-     */
-    fun decryptServerPassword(profile: ServerProfile): String? {
-        if (!profile.rememberPassword || profile.encPassword.isBlank()) return null
-        return runCatching { decrypt(profile.encPassword) }.getOrNull()
+    suspend fun setActiveServerUrl(url: String?) {
+        context.dataStore.edit {
+            if (url.isNullOrBlank()) it.remove(ACTIVE_SERVER) else it[ACTIVE_SERVER] = url
+        }
     }
 
-    /**
-     * 加密密码，用于存入 ServerProfile
-     */
-    fun encryptPassword(password: String): String = encrypt(password)
-    
-    // ── 主题设置 ────────────────────────────────────────────────
-    
-    enum class ThemeMode(val value: String) {
-        SYSTEM("0"),
-        LIGHT("1"),
-        DARK("2");
-        
-        companion object {
-            fun fromValue(value: String): ThemeMode = entries.find { it.value == value } ?: LIGHT
-        }
-    }
-    
-    suspend fun saveThemeMode(mode: ThemeMode) {
-        context.dataStore.edit { preferences ->
-            preferences[THEME_MODE] = mode.value
-        }
-    }
-    
-    suspend fun getThemeMode(): ThemeMode {
-        return context.dataStore.data.map { preferences ->
-            ThemeMode.fromValue(preferences[THEME_MODE] ?: ThemeMode.LIGHT.value)
-        }.first()
-    }
-    
-    // ── 通知设置 ────────────────────────────────────────────────
-    
-    suspend fun saveNotificationEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[NOTIFICATION_ENABLED] = enabled
-        }
-    }
-    
-    suspend fun getNotificationEnabled(): Boolean {
-        return context.dataStore.data.map { preferences ->
-            preferences[NOTIFICATION_ENABLED] ?: true
-        }.first()
-    }
-    
-    suspend fun saveDownloadNotificationEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[DOWNLOAD_NOTIFICATION_ENABLED] = enabled
-        }
-    }
-    
-    suspend fun getDownloadNotificationEnabled(): Boolean {
-        return context.dataStore.data.map { preferences ->
-            preferences[DOWNLOAD_NOTIFICATION_ENABLED] ?: true
-        }.first()
-    }
-    
-    suspend fun saveNewContentNotificationEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[NEW_CONTENT_NOTIFICATION_ENABLED] = enabled
-        }
-    }
-    
-    suspend fun getNewContentNotificationEnabled(): Boolean {
-        return context.dataStore.data.map { preferences ->
-            preferences[NEW_CONTENT_NOTIFICATION_ENABLED] ?: true
-        }.first()
-    }
-    
-    suspend fun saveAlertNotificationEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[ALERT_NOTIFICATION_ENABLED] = enabled
-        }
-    }
-    
-    suspend fun getAlertNotificationEnabled(): Boolean {
-        return context.dataStore.data.map { preferences ->
-            preferences[ALERT_NOTIFICATION_ENABLED] ?: true
-        }.first()
+    // ── 账号 ─────────────────────────────────────────────────────
+
+    suspend fun getAccounts(): List<AccountProfile> {
+        val json = runCatching {
+            context.dataStore.data.map { prefs -> prefs[ACCOUNTS] }.first()
+        }.getOrNull()
+        if (json.isNullOrBlank()) return emptyList()
+        val type = object : TypeToken<List<AccountProfile>>() {}.type
+        return runCatching { gson.fromJson<List<AccountProfile>>(json, type) }
+            .getOrNull()
+            ?: emptyList()
     }
 
-    // ── 悬浮按钮位置 ────────────────────────────────────────────────
+    suspend fun saveAccounts(accounts: List<AccountProfile>) {
+        context.dataStore.edit { it[ACCOUNTS] = gson.toJson(accounts) }
+    }
 
-    /**
-     * 保存悬浮按钮位置
-     * @param x 相对屏幕宽度的比例 (0.0 - 1.0)
-     * @param y 相对屏幕高度的比例 (0.0 - 1.0)
-     */
+    /** 同一服务器 + 同一用户名视为同一个账号，只更新密码与使用时间 */
+    suspend fun upsertAccount(
+        serverUrl: String,
+        username: String,
+        rememberPassword: Boolean,
+        encPassword: String
+    ) {
+        val normalized = normalizeServerUrl(serverUrl)
+        val accounts = getAccounts().toMutableList()
+        val existing = accounts.find {
+            it.serverUrl == normalized && it.username.equals(username, ignoreCase = true)
+        }
+        val now = System.currentTimeMillis()
+        if (existing != null) {
+            accounts[accounts.indexOf(existing)] = existing.copy(
+                username = username,
+                rememberPassword = rememberPassword,
+                encPassword = encPassword,
+                lastUsedAt = now
+            )
+        } else {
+            accounts.add(
+                AccountProfile(
+                    serverUrl = normalized,
+                    username = username,
+                    rememberPassword = rememberPassword,
+                    encPassword = encPassword,
+                    lastUsedAt = now
+                )
+            )
+        }
+        saveAccounts(accounts)
+    }
+
+    suspend fun touchAccount(id: String) {
+        val accounts = getAccounts().toMutableList()
+        val idx = accounts.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            accounts[idx] = accounts[idx].copy(lastUsedAt = System.currentTimeMillis())
+            saveAccounts(accounts)
+        }
+    }
+
+    suspend fun deleteAccount(id: String) {
+        saveAccounts(getAccounts().filterNot { it.id == id })
+    }
+
+    // ── 当前会话 ──────────────────────────────────────────────────
+
+    suspend fun saveAuthToken(token: String) {
+        context.dataStore.edit { it[AUTH_TOKEN] = token }
+    }
+
+    suspend fun getAuthToken(): String? = runCatching {
+        context.dataStore.data.map { it[AUTH_TOKEN] }.first()
+    }.getOrNull()
+
+    suspend fun clearAuthToken() {
+        context.dataStore.edit { it.remove(AUTH_TOKEN) }
+    }
+
+    suspend fun saveCurrentUsername(username: String) {
+        context.dataStore.edit { it[CURRENT_USER] = username }
+    }
+
+    suspend fun getCurrentUsername(): String? = runCatching {
+        context.dataStore.data.map { it[CURRENT_USER] }.first()
+    }.getOrNull()
+
+    suspend fun clearCurrentUsername() {
+        context.dataStore.edit { it.remove(CURRENT_USER) }
+    }
+
+    // ── 悬浮球位置 ────────────────────────────────────────────────
+
     suspend fun saveFabPosition(x: Float, y: Float) {
-        context.dataStore.edit { preferences ->
-            preferences[FAB_POS_X] = x.coerceIn(0f, 1f)
-            preferences[FAB_POS_Y] = y.coerceIn(0f, 1f)
-            preferences[FAB_CUSTOMIZED] = true
+        context.dataStore.edit {
+            it[FAB_POS_X] = x.coerceIn(0f, 1f)
+            it[FAB_POS_Y] = y.coerceIn(0f, 1f)
+            it[FAB_CUSTOMIZED] = true
         }
     }
 
-    /**
-     * 获取悬浮按钮位置
-     * @return Pair(x比例, y比例)，如果未设置则返回 null
-     */
-    suspend fun getFabPosition(): Pair<Float, Float>? {
-        return context.dataStore.data.map { preferences ->
-            if (preferences[FAB_CUSTOMIZED] == true) {
-                val x = preferences[FAB_POS_X] ?: 0.85f  // 默认靠右
-                val y = preferences[FAB_POS_Y] ?: 0.85f  // 默认靠下
-                Pair(x, y)
-            } else {
-                null
-            }
+    suspend fun getFabPosition(): Pair<Float, Float>? = runCatching {
+        context.dataStore.data.map { prefs ->
+            if (prefs[FAB_CUSTOMIZED] == true) {
+                Pair(prefs[FAB_POS_X] ?: 0.86f, prefs[FAB_POS_Y] ?: 0.80f)
+            } else null
         }.first()
+    }.getOrNull()
+
+    // ── v2 → v3 迁移 ─────────────────────────────────────────────
+
+    /**
+     * 只在首次启动执行一次：
+     * 旧的 server_profiles 里，每条记录带一个账号，拆成「服务器 + 账号」两条数据。
+     *
+     * 注意：不再预置任何服务器地址——用户输入什么就连什么。
+     */
+    suspend fun migrateIfNeeded() {
+        val done = runCatching {
+            context.dataStore.data.map { it[MIGRATED] ?: false }.first()
+        }.getOrDefault(false)
+        if (done) return
+
+        if (getServers().isEmpty()) {
+            val legacyJson = runCatching {
+                context.dataStore.data.map { it[LEGACY_PROFILES] }.first()
+            }.getOrNull()
+
+            val legacy: List<LegacyProfile> = if (legacyJson.isNullOrBlank()) {
+                emptyList()
+            } else {
+                val type = object : TypeToken<List<LegacyProfile>>() {}.type
+                runCatching { gson.fromJson<List<LegacyProfile>>(legacyJson, type) }
+                    .getOrNull()
+                    ?: emptyList()
+            }
+
+            if (legacy.isNotEmpty()) {
+                legacy.forEach { old ->
+                    val url = normalizeServerUrl(old.serverUrl ?: return@forEach)
+                    if (url.isEmpty()) return@forEach
+                    upsertServer(url, old.name ?: "")
+                    val user = old.username.orEmpty()
+                    if (user.isNotBlank()) {
+                        upsertAccount(
+                            serverUrl = url,
+                            username = user,
+                            rememberPassword = old.rememberPassword,
+                            encPassword = old.encPassword.orEmpty()
+                        )
+                    }
+                }
+            } else {
+                // 更早的单服务器配置
+                val oldUrl = runCatching {
+                    context.dataStore.data.map { it[LEGACY_SERVER_URL] }.first()
+                }.getOrNull()
+                val oldUser = runCatching {
+                    context.dataStore.data.map { it[LEGACY_USERNAME] }.first()
+                }.getOrNull()
+                val oldPwd = runCatching {
+                    context.dataStore.data.map { it[LEGACY_PASSWORD] }.first()
+                }.getOrNull()
+                val oldRemember = runCatching {
+                    context.dataStore.data.map { it[LEGACY_REMEMBER] ?: false }.first()
+                }.getOrDefault(false)
+
+                if (!oldUrl.isNullOrBlank()) {
+                    val url = normalizeServerUrl(oldUrl)
+                    upsertServer(url, "")
+                    if (!oldUser.isNullOrBlank() && !oldPwd.isNullOrBlank()) {
+                        upsertAccount(url, oldUser, oldRemember, oldPwd)
+                    }
+                }
+            }
+        }
+
+        if (getActiveServerUrl() == null) {
+            getServers().firstOrNull()?.let { setActiveServerUrl(it.serverUrl) }
+        }
+
+        context.dataStore.edit { it[MIGRATED] = true }
+        normalizeServerNames()
     }
 
     /**
-     * 检查悬浮按钮是否已手动调整过
+     * 3.0.0 早期版本给首次安装塞过一条名字为「V3 服务器 / V2 服务器」的内置项，
+     * 看起来像写死的地址。这里把这些名字换成实际地址，列表就是纯粹的用户记录。
      */
-    suspend fun isFabCustomized(): Boolean {
-        return context.dataStore.data.map { preferences ->
-            preferences[FAB_CUSTOMIZED] ?: false
-        }.first()
+    suspend fun normalizeServerNames() {
+        val done = runCatching {
+            context.dataStore.data.map { it[NAME_FIXED] ?: false }.first()
+        }.getOrDefault(false)
+        if (done) return
+
+        val servers = getServersRaw()
+        val renamed = servers.map { server ->
+            if (server.name == "V3 服务器" || server.name == "V2 服务器") {
+                server.copy(name = displayServerUrl(server.serverUrl))
+            } else {
+                server
+            }
+        }
+        if (renamed != servers) saveServers(renamed)
+        context.dataStore.edit { it[NAME_FIXED] = true }
+    }
+
+    /** 不排序的原始列表，仅内部写回时用，避免排序结果影响 index 语义 */
+    private suspend fun getServersRaw(): List<ServerProfile> {
+        val json = runCatching {
+            context.dataStore.data.map { prefs -> prefs[SERVERS] }.first()
+        }.getOrNull()
+        if (json.isNullOrBlank()) return emptyList()
+        val type = object : TypeToken<List<ServerProfile>>() {}.type
+        return runCatching { gson.fromJson<List<ServerProfile>>(json, type) }
+            .getOrNull()
+            ?: emptyList()
     }
 }

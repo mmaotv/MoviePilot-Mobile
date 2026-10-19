@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色：与网页版 V3 dark 主题一致 -->
+    <color name="mp_bg">#0E1116</color>
+    <color name="mp_primary">#8D51F9</color>
+    <color name="mp_surface">#161B22</color>
+    <color name="mp_on_surface">#E6EDF3</color>
+    <color name="mp_on_surface_variant">#8B949E</color>
+    <color name="mp_outline">#30363D</color>
+
+    <color name="splash_background">#0E1116</color>
+</resources>
