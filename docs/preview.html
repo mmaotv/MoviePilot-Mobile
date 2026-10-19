@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoviePilot Android · 界面预览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --ink: #2b2733;
+    --ink-2: #6f7280;
+    --line: #e7e5ef;
+    --page: #f7f6fb;
+    --brand: #8d51f9;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background:
+      radial-gradient(1100px 620px at 50% -220px, rgba(141, 81, 249, .16), transparent 70%),
+      linear-gradient(180deg, #faf9ff 0%, #f4f3fa 60%, #eeeaf8 100%);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 40px 64px;
+  }
+
+  /* ── 页头 ─────────────────────────────────────────── */
+  .head { text-align: center; margin-bottom: 46px; }
+  .head .mark {
+    width: 58px; height: 58px; display: block; margin: 0 auto 16px;
+    filter: drop-shadow(0 10px 20px rgba(141, 81, 249, .28));
+  }
+  .head h1 {
+    font-size: 30px; font-weight: 700; letter-spacing: .4px;
+    background: linear-gradient(90deg, #3a3541 0%, #6d3fc4 60%, #8d51f9 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .head p { margin-top: 10px; font-size: 14px; color: var(--ink-2); letter-spacing: .3px; }
+  .tags { display: flex; gap: 8px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+  .tag {
+    font-size: 11px; letter-spacing: .4px; color: #6d3fc4;
+    background: rgba(141, 81, 249, .08);
+    border: 1px solid rgba(141, 81, 249, .16);
+    padding: 5px 11px; border-radius: 999px;
+  }
+
+  /* ── 手机外框 ─────────────────────────────────────── */
+  .rail { display: flex; gap: 34px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+  .device { width: 408px; }
+  .frame {
+    width: 390px; height: 844px; box-sizing: content-box; border-radius: 42px; padding: 9px;
+    background: linear-gradient(160deg, #35313e 0%, #15131a 55%, #2a2633 100%);
+    box-shadow:
+      0 30px 70px -18px rgba(40, 24, 80, .38),
+      0 10px 24px -10px rgba(40, 24, 80, .22),
+      inset 0 0 0 1.5px rgba(255, 255, 255, .12);
+    position: relative;
+  }
+  .frame::after { /* 侧键 */
+    content: ""; position: absolute; right: -2px; top: 210px; width: 2px; height: 74px;
+    border-radius: 2px; background: #4a4553;
+  }
+  .screen {
+    width: 390px; height: 844px; border-radius: 34px; overflow: hidden;
+    position: relative; isolation: isolate;
+  }
+  .cap { margin-top: 16px; text-align: center; font-size: 12.5px; color: var(--ink-2); letter-spacing: .4px; }
+  .cap b { color: #5c3d99; font-weight: 600; }
+
+  /* ── 主题变量 ─────────────────────────────────────── */
+  .screen[data-theme="light"] {
+    --bg: #f4f5fa; --bg-alt: #ede9fb; --surface: #ffffff; --sv: #f0f2f8;
+    --outline: #e3e5ee; --primary: #8d51f9; --primary-soft: #f2ebfe;
+    --text: #3a3541; --text2: #8a8d93; --danger: #ff4c51; --danger-soft: #ffeff0;
+    --scrim: rgba(0, 0, 0, .26); --card-shadow: 0 14px 30px -8px rgba(141, 81, 249, .30);
+    --sb-fg: #3a3541;
+  }
+  .screen[data-theme="dark"] {
+    --bg: #0e1116; --bg-alt: #161129; --surface: #161b22; --sv: #21262d;
+    --outline: #30363d; --primary: #8d51f9; --primary-soft: #241c3a;
+    --text: #e6edf3; --text2: #8b949e; --danger: #ff6b6e; --danger-soft: #2d1416;
+    --scrim: rgba(0, 0, 0, .60); --card-shadow: none;
+    --sb-fg: #e6edf3;
+  }
+  /* 截图时去掉圆角，输出矩形整屏 */
+  .screen.flat { border-radius: 0 !important; }
+  .screen::-webkit-scrollbar, .screen *::-webkit-scrollbar { display: none; }
+  .screen { scrollbar-width: none; }
+
+  /* ── 状态栏 ───────────────────────────────────────── */
+  .statusbar {
+    height: 46px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 22px 0 26px; color: var(--sb-fg); position: relative; z-index: 4;
+  }
+  .statusbar .t { font-size: 14px; font-weight: 600; letter-spacing: .2px; }
+  .statusbar .r { display: flex; align-items: center; gap: 6px; }
+  .statusbar svg { display: block; }
+
+  /* ── 登录页 ───────────────────────────────────────── */
+  .login { background: var(--bg); }
+  .login::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 55%, var(--bg-alt) 100%);
+  }
+  .login .glow {
+    position: absolute; left: 50%; top: -140px; width: 560px; height: 460px;
+    transform: translateX(-50%);
+    background: radial-gradient(circle, rgba(141, 81, 249, .16) 0%, rgba(141, 81, 249, 0) 62%);
+    pointer-events: none;
+  }
+  .login-body {
+    position: relative; z-index: 2; padding: 34px 24px 0;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .logo { width: 96px; height: 96px; object-fit: contain; }
+  .brand { margin-top: 14px; font-size: 26px; font-weight: 700; letter-spacing: .5px; color: var(--text); }
+  .slogan { margin-top: 6px; font-size: 13px; letter-spacing: .3px; color: var(--text2); }
+
+  .card {
+    margin-top: 26px; width: 100%; background: var(--surface);
+    border: 1px solid var(--outline); border-radius: 18px;
+    box-shadow: var(--card-shadow); overflow: hidden;
+  }
+  .row { display: flex; align-items: center; height: 56px; padding: 0 16px; }
+  .row .ico { width: 20px; height: 20px; flex: 0 0 20px; color: var(--text2); }
+  .row.filled .ico { color: var(--primary); }
+  .row .val { margin-left: 12px; font-size: 15px; color: var(--text); flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .row .trail { color: var(--text2); display: flex; align-items: center; gap: 2px; }
+  .hr { height: 1px; background: var(--outline); opacity: .9; }
+
+  .accounts { padding: 11px 16px; }
+  .acc-label { font-size: 11px; letter-spacing: .5px; color: var(--text2); }
+  .chips { display: flex; gap: 8px; margin-top: 9px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px;
+    border-radius: 9px; border: 1px solid var(--outline); background: var(--sv);
+    font-size: 13px; color: var(--text);
+  }
+  .chip i {
+    width: 18px; height: 18px; border-radius: 5px; background: var(--outline);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-style: normal; color: var(--text2);
+  }
+  .chip.on { background: var(--primary-soft); border-color: rgba(141, 81, 249, .45); color: var(--primary); }
+  .chip.on i { background: var(--primary); color: #fff; }
+
+  .remember { display: flex; align-items: center; gap: 4px; padding: 7px 16px 7px 12px; }
+  .cbx {
+    width: 22px; height: 22px; border-radius: 6px; background: var(--primary);
+    display: flex; align-items: center; justify-content: center; flex: 0 0 22px;
+  }
+  .remember span { font-size: 13px; color: var(--text); margin-left: 4px; }
+
+  .btn-login {
+    margin-top: 20px; width: 100%; height: 52px; border: 0; border-radius: 14px;
+    background: linear-gradient(90deg, #8d51f9 0%, #a478ff 100%);
+    color: #fff; font-size: 16px; font-weight: 600; letter-spacing: 4px; text-indent: 4px;
+    font-family: inherit;
+    box-shadow: 0 14px 26px -8px rgba(141, 81, 249, .55);
+  }
+  .screen[data-theme="dark"] .btn-login { box-shadow: none; }
+  .ver { margin-top: 22px; font-size: 11px; color: var(--text2); opacity: .75; }
+
+  /* ── PWA 屏 ───────────────────────────────────────── */
+  .pwa { background: #0b1322; }
+  .pwa .shot {
+    position: absolute; left: 0; top: 46px; width: 100%; height: calc(100% - 46px);
+    object-fit: cover; object-position: top center; display: block;
+  }
+  .pwa .statusbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 7; color: #fff;
+    background: linear-gradient(180deg, rgba(9, 16, 28, .55), rgba(9, 16, 28, 0));
+  }
+  .fab {
+    position: absolute; width: 48px; height: 48px; border-radius: 50%;
+    right: 22px; bottom: 168px; background: rgba(141, 81, 249, .92);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
+    display: flex; align-items: center; justify-content: center; z-index: 3;
+  }
+  .fab svg { color: #fff; }
+  .scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 5; }
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 74%;
+    background: var(--surface); border-radius: 20px 20px 0 0; z-index: 6;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .handle { width: 36px; height: 4px; border-radius: 2px; background: var(--outline); margin: 8px auto 0; }
+  .sheet-head { display: flex; align-items: center; padding: 12px 8px 8px 20px; }
+  .sheet-head .t1 { font-size: 17px; font-weight: 500; color: var(--text); }
+  .sheet-head .t2 { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .sheet-head .x { margin-left: auto; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: var(--text2); }
+
+  .sec { display: flex; align-items: center; padding: 14px 8px 2px 20px; }
+  .sec .st { font-size: 11px; letter-spacing: 1px; color: var(--text2); flex: 1; }
+  .sec .act { display: flex; align-items: center; gap: 2px; color: var(--primary); font-size: 12px; padding: 6px 10px; }
+
+  .addr { padding: 6px 20px 0; }
+  .addr-row { display: flex; align-items: center; gap: 8px; }
+  .pfield {
+    flex: 1; height: 40px; border-radius: 9px; background: var(--sv);
+    border: 1px solid var(--outline); display: flex; align-items: center;
+    padding: 0 12px; font-size: 12px; color: var(--text2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .connect { height: 40px; padding: 0 16px; border-radius: 9px; background: var(--sv); color: var(--text2); font-size: 13px; display: flex; align-items: center; }
+  .connect.on { background: var(--primary); color: #fff; }
+  .addr-tip { font-size: 10px; color: var(--text2); margin-top: 6px; }
+
+  .saved-label { padding: 10px 20px 2px; font-size: 10px; letter-spacing: 1px; color: var(--text2); }
+  .item { display: flex; align-items: center; padding: 10px 4px 10px 20px; }
+  .item .nm { font-size: 14px; color: var(--text); }
+  .item .nm.on { color: var(--primary); }
+  .item .url { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .item .grow { flex: 1; overflow: hidden; }
+  .badge { font-size: 10px; color: var(--primary); background: rgba(141, 81, 249, .14); padding: 2px 6px; border-radius: 5px; }
+  .del { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; color: var(--text2); opacity: .55; }
+
+  .acct { display: flex; align-items: center; padding: 8px 4px 8px 20px; }
+  .ava {
+    width: 32px; height: 32px; border-radius: 9px; background: var(--sv);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 500; color: var(--text2); flex: 0 0 32px;
+  }
+  .ava.on { background: rgba(141, 81, 249, .2); color: var(--primary); }
+  .acct .nm { font-size: 14px; color: var(--text); }
+  .acct .nm.on { color: var(--primary); }
+  .acct .sub { font-size: 10px; color: var(--text2); margin-top: 1px; }
+
+  .sheet-foot {
+    margin-top: auto; border-top: 1px solid var(--outline);
+    display: flex; align-items: center; padding: 16px 20px 22px;
+  }
+  .sheet-foot .out { font-size: 14px; color: var(--danger); flex: 1; }
+  .sheet-foot .hint { font-size: 11px; color: var(--text2); }
+
+  .foot { margin-top: 46px; text-align: center; font-size: 11.5px; color: #8b8797; letter-spacing: .3px; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <img class="mark" src="assets/logo.png" alt="">
+  <h1>MoviePilot Android</h1>
+  <p>纯 PWA 外壳 · 只保留「切换服务器」和「切换账号」</p>
+  <div class="tags">
+    <span class="tag">Jetpack Compose</span>
+    <span class="tag">WebView 承载</span>
+    <span class="tag">多服务器 / 多账号</span>
+    <span class="tag">深浅色跟随系统</span>
+    <span class="tag">无转场动画</span>
+  </div>
+</div>
+
+<div class="rail">
+
+  <!-- ① 登录页 · 浅色 -->
+  <figure class="device">
+    <div class="frame">
+      <div class="screen login" data-theme="light" data-shot="login-light">
+        <div class="glow"></div>
+        <div class="statusbar">
+          <span class="t">21:12</span>
+          <span class="r">
+            <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.5" y="5" width="3" height="6" rx="1"/><rect x="9" y="2.5" width="3" height="8.5" rx="1"/><rect x="13.5" y="0" width="3" height="11" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M1 4.2a10 10 0 0 1 14 0"/><path d="M3.6 7a6.4 6.4 0 0 1 8.8 0"/><path d="M6.2 9.6a2.8 2.8 0 0 1 3.6 0"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x=".6" y=".6" width="20" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45"/><rect x="2.2" y="2.2" width="15" height="7.6" rx="1.8" fill="currentColor"/><path d="M22.4 4.2v3.6a2 2 0 0 0 0-3.6z" fill="currentColor" fill-opacity=".5"/></svg>
+          </span>
+        </div>
+
+        <div class="login-body">
+          <img class="logo" src="assets/logo.png" alt="">
+          <div class="brand">MoviePilot</div>
+          <div class="slogan">连接你的影视库</div>
+
+          <div class="card">
+            <div class="row filled">
+              <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/></svg>
+              <span class="val">192.168.10.130:3000</span>
+              <span class="trail"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg></span>
+            </div>
+            <div class="hr"></div>
+
+            <div class="accounts">
+              <div class="acc-label">此服务器的账号</div>
+              <div class="chips">
+                <span class="chip on"><i>A</i>admin</span>
+                <span class="chip"><i>M</i>miaomiao</span>
+              </div>
+            </div>
+            <div class="hr"></div>
+
+            <div class="row filled">
+              <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2m0 9c2.7 0 5.8 1.29 6 2v1H6v-.99c.2-.72 3.3-2.01 6-2.01m0-11C9.79 4 8 5.79 8 8s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 9c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4z"/></svg>
+              <span class="val">admin</span>
+            </div>
+            <div class="hr"></div>
+
+            <div class="row filled">
+              <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM8.9 6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H8.9V6zM18 20H6V10h12v10z"/></svg>
+              <span class="val">••••••••••</span>
+              <span class="trail"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></span>
+            </div>
+            <div class="hr"></div>
+
+            <div class="remember">
+              <span class="cbx"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+              <span>记住密码</span>
+            </div>
+          </div>
+
+          <button class="btn-login">登录</button>
+          <div class="ver">v3.0.0 · 192.168.10.130:3000</div>
+        </div>
+      </div>
+    </div>
+    <figcaption class="cap"><b>原生登录页</b> · 浅色主题</figcaption>
+  </figure>
+
+  <!-- ② 登录页 · 深色 -->
+  <figure class="device">
+    <div class="frame">
+      <div class="screen login" data-theme="dark" data-shot="login-dark">
+        <div class="glow"></div>
+        <div class="statusbar">
+          <span class="t">21:12</span>
+          <span class="r">
+            <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.5" y="5" width="3" height="6" rx="1"/><rect x="9" y="2.5" width="3" height="8.5" rx="1"/><rect x="13.5" y="0" width="3" height="11" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M1 4.2a10 10 0 0 1 14 0"/><path d="M3.6 7a6.4 6.4 0 0 1 8.8 0"/><path d="M6.2 9.6a2.8 2.8 0 0 1 3.6 0"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x=".6" y=".6" width="20" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45"/><rect x="2.2" y="2.2" width="15" height="7.6" rx="1.8" fill="currentColor"/><path d="M22.4 4.2v3.6a2 2 0 0 0 0-3.6z" fill="currentColor" fill-opacity=".5"/></svg>
+          </span>
+        </div>
+
+        <div class="login-body">
+          <img class="logo" src="assets/logo.png" alt="">
+          <div class="brand">MoviePilot</div>
+          <div class="slogan">连接你的影视库</div>
+
+          <div class="card">
+            <div class="row filled">
+              <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/></svg>
+              <span class="val">192.168.10.130:3000</span>
+              <span class="trail"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg></span>
+            </div>
+            <div class="hr"></div>
+
+            <div class="accounts">
+              <div class="acc-label">此服务器的账号</div>
+              <div class="chips">
+                <span class="chip on"><i>A</i>admin</span>
+                <span class="chip"><i>M</i>miaomiao</span>
+              </div>
+            </div>
+            <div class="hr"></div>
+
+            <div class="row filled">
+              <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2m0 9c2.7 0 5.8 1.29 6 2v1H6v-.99c.2-.72 3.3-2.01 6-2.01m0-11C9.79 4 8 5.79 8 8s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 9c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4z"/></svg>
+              <span class="val">admin</span>
+            </div>
+            <div class="hr"></div>
+
+            <div class="row filled">
+              <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM8.9 6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H8.9V6zM18 20H6V10h12v10z"/></svg>
+              <span class="val">••••••••••</span>
+              <span class="trail"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></span>
+            </div>
+            <div class="hr"></div>
+
+            <div class="remember">
+              <span class="cbx"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+              <span>记住密码</span>
+            </div>
+          </div>
+
+          <button class="btn-login">登录</button>
+          <div class="ver">v3.0.0 · 192.168.10.130:3000</div>
+        </div>
+      </div>
+    </div>
+    <figcaption class="cap"><b>原生登录页</b> · 深色主题</figcaption>
+  </figure>
+
+  <!-- ③ 切换面板 -->
+  <figure class="device">
+    <div class="frame">
+      <div class="screen pwa" data-theme="light" data-shot="switch-panel">
+        <img class="shot" src="screenshots/v3-dashboard.png" alt="">
+        <div class="statusbar">
+          <span class="t">21:12</span>
+          <span class="r">
+            <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1"/><rect x="4.5" y="5" width="3" height="6" rx="1"/><rect x="9" y="2.5" width="3" height="8.5" rx="1"/><rect x="13.5" y="0" width="3" height="11" rx="1"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M1 4.2a10 10 0 0 1 14 0"/><path d="M3.6 7a6.4 6.4 0 0 1 8.8 0"/><path d="M6.2 9.6a2.8 2.8 0 0 1 3.6 0"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x=".6" y=".6" width="20" height="10.8" rx="3" stroke="currentColor" stroke-opacity=".45"/><rect x="2.2" y="2.2" width="15" height="7.6" rx="1.8" fill="currentColor"/><path d="M22.4 4.2v3.6a2 2 0 0 0 0-3.6z" fill="currentColor" fill-opacity=".5"/></svg>
+          </span>
+        </div>
+        <div class="fab">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="sheet-head">
+            <div>
+              <div class="t1">切换</div>
+              <div class="t2">192.168.10.130:3000 · admin</div>
+            </div>
+            <div class="x"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></div>
+          </div>
+          <div class="hr"></div>
+
+          <div class="sec"><span class="st">服务器</span></div>
+          <div class="addr">
+            <div class="addr-row">
+              <div class="pfield">输入服务器地址，如 192.168.1.10:3000</div>
+              <div class="connect">连接</div>
+            </div>
+            <div class="addr-tip">http / https、域名或 IP、带子路径都行，连过会自动存到下面</div>
+          </div>
+
+          <div class="saved-label">已保存</div>
+          <div class="item">
+            <div class="grow"><div class="nm on">MoviePilot V3</div><div class="url">192.168.10.130:3000</div></div>
+            <span class="badge">当前</span>
+            <div class="del"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+          </div>
+          <div class="item">
+            <div class="grow"><div class="nm">MoviePilot V2</div><div class="url">192.168.10.130:5000</div></div>
+            <div class="del"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+          </div>
+          <div class="item">
+            <div class="grow"><div class="nm">家里 NAS</div><div class="url">https://mp.example.com/moviepilot</div></div>
+            <div class="del"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+          </div>
+
+          <div class="hr"></div>
+          <div class="sec">
+            <span class="st">账号</span>
+            <span class="act"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>新增</span>
+          </div>
+
+          <div class="acct">
+            <div class="ava on">A</div>
+            <div class="grow" style="margin-left:12px">
+              <div class="nm on">admin</div>
+              <div class="sub">已保存密码</div>
+            </div>
+            <span class="badge">当前</span>
+            <div class="del"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+          </div>
+          <div class="acct">
+            <div class="ava">M</div>
+            <div class="grow" style="margin-left:12px">
+              <div class="nm">miaomiao</div>
+            </div>
+            <div class="del"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></div>
+          </div>
+
+          <div class="sheet-foot">
+            <span class="out">退出登录</span>
+            <span class="hint">回到登录页</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption class="cap"><b>悬浮球 · 切换面板</b> · 覆盖在网页版之上</figcaption>
+  </figure>
+
+</div>
+
+<div class="foot">界面截取自 MoviePilot V3（192.168.10.130:3000）真实运行环境</div>
+
+</body>
+</html>

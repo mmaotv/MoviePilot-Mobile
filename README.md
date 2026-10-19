@@ -1,10 +1,63 @@
-# MoviePilot Android
+<p align="center">
+  <img src="docs/assets/logo.png" width="92" alt="MoviePilot">
+</p>
 
-一个基于 Kotlin + Jetpack Compose 开发的 MoviePilot 安卓客户端应用。
+<h1 align="center">MoviePilot Android</h1>
+
+<p align="center">
+  <b>纯 PWA 外壳</b> · 只保留「切换服务器」和「切换账号」<br>
+  <sub>界面与功能全部由 MoviePilot 服务端网页版提供，客户端不再实现任何业务页面</sub>
+</p>
+
+<p align="center">
+  <img alt="version" src="https://img.shields.io/badge/version-3.0.0-8D51F9?style=flat-square">
+  <img alt="platform" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white">
+  <img alt="kotlin" src="https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+</p>
+
+<br>
+
+<p align="center">
+  <img src="docs/screenshots/overview.png" width="100%" alt="MoviePilot Android 界面总览">
+</p>
+
+<br>
+
+## 界面预览
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/login-light.png" width="100%"><br>
+      <sub><b>原生登录页</b> · 浅色主题</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/login-dark.png" width="100%"><br>
+      <sub><b>原生登录页</b> · 深色主题</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/switch-panel.png" width="100%"><br>
+      <sub><b>悬浮球 · 切换面板</b> · 覆盖在网页版之上</sub>
+    </td>
+  </tr>
+</table>
+
+服务器地址完全由用户输入，同一台服务器可以保存多个账号：
+
+| MoviePilot V3 · 网页版（真实运行截图） | MoviePilot V2 · 网页版（真实运行截图） |
+|:--:|:--:|
+| <img src="docs/screenshots/v3-dashboard.png" width="100%"> | <img src="docs/screenshots/v2-dashboard.png" width="100%"> |
+| `192.168.10.130:3000` · 深色玻璃主题 | `192.168.10.130:5000` · 浅色主题 |
+
+> 想看可交互的界面演示：直接用浏览器打开 [`docs/preview.html`](docs/preview.html)。
+> 登录页与切换面板是按 Compose 参数 1:1 还原的静态预览，网页版部分为真实运行截图。
+
+<br>
 
 ## 功能特性
 
-这是一个 **PWA 外壳**：界面与功能全部由 MoviePilot 服务器网页版提供，App 只负责连接与切换。
+这是一个 **PWA 外壳**：界面与功能全部由 MoviePilot 服务端网页版提供，App 只负责连接与切换。
 
 - 原生登录（服务器地址 + 账号密码）
 - **服务器地址完全由用户输入**：没有内置/预置地址，IP、域名、http/https、反向代理子路径都支持，登录过自动存为历史
@@ -48,6 +101,10 @@ app/src/main/java/com/moviepilot/app/
 │   └── viewmodel/       # AuthViewModel
 ├── MainActivity.kt
 └── MoviePilotApp.kt
+docs/
+├── preview.html         # 可交互界面预览页
+├── assets/              # 预览页用图标
+└── screenshots/         # README 截图
 ```
 
 ## 构建要求
