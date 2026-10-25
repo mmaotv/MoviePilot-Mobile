@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-3.0.0-8D51F9?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-3.0.1-8D51F9?style=flat-square">
   <img alt="platform" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white">
   <img alt="kotlin" src="https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">

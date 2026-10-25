@@ -1,6 +1,61 @@
 # MoviePilot Android - 更新日志
 
-## v3.0.0 (2026-10-19) - 最新
+## v3.0.1 (2026-10-25) - 最新
+
+修复部分悬浮菜单点开后**看不到内容**的问题。
+
+#### 现象
+
+- 订阅页「电视剧订阅」，点任意订阅卡片上的 `…` 菜单，屏幕上看不到任何反应；
+- 搜索结果页点「排序」，排序下拉同样不显示；
+- 站点管理页点站点卡片的菜单，也是空的。
+
+而「站点 / 编码 / 制作组 / 促销状态」这些筛选菜单一直正常 —— 分界线非常明确。
+
+#### 根因
+
+Vuetify 弹层有两种定位方式，两种都被我们之前注入的一条样式命中：
+
+```css
+.v-overlay__content { max-height: 100% !important; }
+```
+
+| 弹层定位 | 父容器高度 | `max-height: 100%` | 实际效果 |
+|---|---|---|---|
+| `position: fixed`（铺满视口） | 778px | 778px | 正常 —— 站点 / 编码 / 制作组筛选 |
+| `position: absolute`（吸附页面内） | **0** | **0px** | 内容被裁成 0 高 —— 订阅卡片菜单 / 排序 / 站点管理菜单 |
+
+Vuetify 自己写在行内的 `max-height: 754px` 本来是正确的，被这条 `!important` 覆盖后才出问题。
+菜单其实**已经弹出、DOM 里文字都在**，只是高度被压成 0，所以屏幕上完全看不到。
+
+#### 修复
+
+- 不再写死百分比，改为由 JS 实测 `window.innerHeight - 16` 写入 CSS 变量 `--mp-overlay-max`，CSS 只读变量；
+- 测不到值时退回 `none`，**不可能再产生 0 高裁剪**。
+
+> 附带发现：这个 WebView 里 `vh` / `dvh` / `svh` 全部解析成 0（实测 `100vh == 0px`，而 `innerHeight` 是 778），
+> 所以上限也不能改用视口单位，必须用 JS 算出的像素值。
+
+#### 验证（真机 Android 14 / WebView 137）
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 订阅卡片 `…` 菜单 | h = 0 | h = 402 ✔ |
+| 搜索「排序」下拉 | h = 0 | h = 307 ✔ |
+| 站点管理卡片菜单 | h = 0 | h = 114 ✔ |
+| 站点 / 编码 / 制作组筛选 | 正常 | 仍正常 ✔ |
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mmaotv/MoviePilot-Mobile/master/docs/screenshots/fix-sub-menu.jpg" width="240" alt="订阅卡片菜单">
+  <img src="https://raw.githubusercontent.com/mmaotv/MoviePilot-Mobile/master/docs/screenshots/fix-sort-menu.jpg" width="240" alt="排序菜单">
+  <img src="https://raw.githubusercontent.com/mmaotv/MoviePilot-Mobile/master/docs/screenshots/fix-site-menu.jpg" width="240" alt="站点管理菜单">
+</p>
+
+> 升级方式：直接覆盖安装即可，账号与已保存的服务器配置不受影响。
+
+---
+
+## v3.0.0 (2026-10-19)
 
 全面转向 PWA 外壳：原生只保留「登录 / 切换服务器 / 切换账号」，其余功能全部由网页版承担。
 
