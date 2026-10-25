@@ -639,19 +639,52 @@ private fun injectAuthToken(view: WebView, token: String, userSeed: String) {
 }
 
 /**
- * 修正 Vuetify 弹层在 WebView 中高度被算成 0 的问题。
- * v2 / v3 都还在用 .v-overlay__content。
+ * 给 Vuetify 弹层加一个「不超过屏幕」的高度上限。
+ *
+ * 上限值必须用 JS 量出来的像素，**不能用 vh，也不要用 100%**，
+ * 两种情况都会把弹层压成 0 高，表现就是「点了菜单没反应」：
+ *
+ *  1. 这个 WebView 里 `vh / dvh / svh` 全部解析成 0（实测 100vh == 0px），
+ *     所以 `max-height:100vh` 等于 0。
+ *  2. `100%` 是相对弹层自己的父容器。Vuetify 的弹层有两种定位：
+ *     - `position:fixed`（铺满视口，父容器 = 视口，100% 没问题）；
+ *     - `position:absolute`（吸附在页面里，父容器是个高度 0 的 div）。
+ *     订阅卡片菜单、搜索结果「排序」、站点管理菜单用的都是后者，
+ *     于是 `max-height:100%` 又变成 0 —— 菜单在 DOM 里是展开的，
+ *     但内容高度被裁成 0，肉眼完全看不见。
+ *
+ * 而 Vuetify 自己写在行内的 `max-height: 754px` 本来是对的，
+ * 被带 !important 的规则覆盖后才出问题，所以这里只做一个「像素上限」兜底：
+ * 上限取窗口逻辑高度 - 16，正常情况下比 Vuetify 自算的还宽松，不会误裁。
  */
 private fun injectOverlayFix(view: WebView) {
     val js = """
         (function () {
           try {
-            if (document.getElementById('mp-overlay-fix')) return;
-            var st = document.createElement('style');
-            st.id = 'mp-overlay-fix';
-            st.textContent = '.v-overlay__content{max-height:100%!important;}' +
-                             '.v-overlay__content>*{max-height:96%!important;}';
-            (document.head || document.documentElement).appendChild(st);
+            var MIN = 240, GAP = 16;
+            function clamp() {
+              // 只能用 innerHeight：vh 系单位在这个 WebView 里恒为 0
+              var h = window.innerHeight || 0;
+              var v = (h > MIN + GAP ? Math.round(h - GAP) : 800) + 'px';
+              var root = document.documentElement;
+              if (root.style.getPropertyValue('--mp-overlay-max') === v) return;
+              root.style.setProperty('--mp-overlay-max', v);
+            }
+
+            if (!document.getElementById('mp-overlay-fix')) {
+              var st = document.createElement('style');
+              st.id = 'mp-overlay-fix';
+              // 变量取不到值时就完全不限制，绝不再产生 0 高的裁剪
+              st.textContent = '.v-overlay__content{max-height:var(--mp-overlay-max,none)!important}';
+              (document.head || document.documentElement).appendChild(st);
+            }
+
+            clamp();
+            if (!window.__mpOverlayClamp) {
+              window.__mpOverlayClamp = true;
+              window.addEventListener('resize', clamp);
+              window.addEventListener('orientationchange', clamp);
+            }
           } catch (e) {}
         })();
     """.trimIndent()
