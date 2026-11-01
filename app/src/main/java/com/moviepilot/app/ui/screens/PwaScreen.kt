@@ -639,23 +639,27 @@ private fun injectAuthToken(view: WebView, token: String, userSeed: String) {
 }
 
 /**
- * 给 Vuetify 弹层加一个「不超过屏幕」的高度上限。
+ * 给 Vuetify 弹层与各类用 vh/dvh 定高的容器做「不限高 / 改像素」兜底。
  *
- * 上限值必须用 JS 量出来的像素，**不能用 vh，也不要用 100%**，
- * 两种情况都会把弹层压成 0 高，表现就是「点了菜单没反应」：
+ * 这个 WebView 里 `vh / dvh / svh` 全部解析成 0（实测 100vh == 0px，
+ * 但 `window.innerHeight` 仍是正常的 778），于是所有用 `vh` 限高的弹层/列表
+ * 都会被算成 0 高、再被 `overflow:hidden` 裁没 —— 表现就是「点了菜单没反应」。
  *
- *  1. 这个 WebView 里 `vh / dvh / svh` 全部解析成 0（实测 100vh == 0px），
- *     所以 `max-height:100vh` 等于 0。
- *  2. `100%` 是相对弹层自己的父容器。Vuetify 的弹层有两种定位：
+ * 具体有两层问题：
+ *
+ *  A. Vuetify 弹层外框 `.v-overlay__content` 有两种定位：
  *     - `position:fixed`（铺满视口，父容器 = 视口，100% 没问题）；
- *     - `position:absolute`（吸附在页面里，父容器是个高度 0 的 div）。
- *     订阅卡片菜单、搜索结果「排序」、站点管理菜单用的都是后者，
- *     于是 `max-height:100%` 又变成 0 —— 菜单在 DOM 里是展开的，
- *     但内容高度被裁成 0，肉眼完全看不见。
+ *     - `position:absolute`（吸附在页面里，父容器是个高度 0 的 div），
+ *       于是 `max-height:100%` 又变成 0。订阅卡片菜单、搜索「排序」、站点管理菜单都属此类。
+ *  B. 通知中心、插件快捷面板、分类规则菜单、文件详情、工作组边栏、AI 气泡等，
+ *     自己用 `min(560px,62vh)` / `min(84dvh,720px)` 这类 `vh/dvh` 限高，
+ *     vh=0 时直接算出 0 —— 这是「通知中心也点不开」的真实根因。
  *
- * 而 Vuetify 自己写在行内的 `max-height: 754px` 本来是对的，
- * 被带 !important 的规则覆盖后才出问题，所以这里只做一个「像素上限」兜底：
- * 上限取窗口逻辑高度 - 16，正常情况下比 Vuetify 自算的还宽松，不会误裁。
+ * 修复办法：用 JS 量出真实可视高，写到两个 CSS 变量上（普通浏览器下值完全一致）：
+ *   --mp-overlay-max = innerHeight - 16（弹层像素上限）
+ *   --mp-vh          = innerHeight / 100（替代 1vh）
+ * 再用带 !important 的注入样式把上述受影响的规则改写成读变量，普通浏览器下
+ * 等价于原 `vh`，本 WebView 里则拿到正确像素，不再塌成 0。
  */
 private fun injectOverlayFix(view: WebView) {
     val js = """
@@ -666,16 +670,31 @@ private fun injectOverlayFix(view: WebView) {
               // 只能用 innerHeight：vh 系单位在这个 WebView 里恒为 0
               var h = window.innerHeight || 0;
               var v = (h > MIN + GAP ? Math.round(h - GAP) : 800) + 'px';
+              var vh = (h > 0 ? (h / 100) : 8.44) + 'px';
               var root = document.documentElement;
-              if (root.style.getPropertyValue('--mp-overlay-max') === v) return;
-              root.style.setProperty('--mp-overlay-max', v);
+              if (root.style.getPropertyValue('--mp-overlay-max') !== v) root.style.setProperty('--mp-overlay-max', v);
+              if (root.style.getPropertyValue('--mp-vh') !== vh) root.style.setProperty('--mp-vh', vh);
             }
 
             if (!document.getElementById('mp-overlay-fix')) {
               var st = document.createElement('style');
               st.id = 'mp-overlay-fix';
-              // 变量取不到值时就完全不限制，绝不再产生 0 高的裁剪
-              st.textContent = '.v-overlay__content{max-height:var(--mp-overlay-max,none)!important}';
+              // 变量取不到值时退回 none / 8.44px，绝不再产生 0 高的裁剪
+              st.textContent =
+                // A. Vuetify 弹层外框：absolute 定位父容器高 0，100% 会把菜单压成 0 高
+                '.v-overlay__content{max-height:var(--mp-overlay-max,none)!important}' +
+                // B. 通知中心列表：外层 overflow:hidden + max-block-size:min(560px,62vh)，
+                //    62vh=0 时被裁没。用 --mp-vh 还原 62% 视口高。
+                '.notification-list-container,.notification-list-scroll{max-height:min(560px,calc(var(--mp-vh,8.44px)*62))!important;max-block-size:min(560px,calc(var(--mp-vh,8.44px)*62))!important}' +
+                '.notification-template-editor-dialog{block-size:auto!important;height:auto!important;max-height:calc(var(--mp-vh,8.44px)*100 - 2rem)!important;max-block-size:calc(var(--mp-vh,8.44px)*100 - 2rem)!important}' +
+                // 插件快捷面板 / 分类规则菜单 / 文件详情 / 工作组边栏 / AI 气泡等同类 vh 弹层
+                '.plugin-quick-access-sheet{max-height:min(720px,calc(var(--mp-vh,8.44px)*84))!important;max-block-size:min(720px,calc(var(--mp-vh,8.44px)*84))!important}' +
+                '.classification-rule-menu{max-height:min(280px,calc(var(--mp-vh,8.44px)*100 - 8rem))!important;max-block-size:min(280px,calc(var(--mp-vh,8.44px)*100 - 8rem))!important}' +
+                '.file-details{max-height:calc(var(--mp-vh,8.44px)*100 - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 1rem)!important;max-block-size:calc(var(--mp-vh,8.44px)*100 - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 1rem)!important}' +
+                '.workflow-edge-panel{max-height:min(calc(var(--mp-vh,8.44px)*72),calc(100% - 112px))!important;max-block-size:min(calc(var(--mp-vh,8.44px)*72),calc(100% - 112px))!important}' +
+                '.agent-assistant-fab__bubbles{max-height:min(34rem,calc(var(--mp-vh,8.44px)*100 - 8rem))!important;max-block-size:min(34rem,calc(var(--mp-vh,8.44px)*100 - 8rem))!important}' +
+                '.medal-showcase{--stage-size:min(420px,calc(100vw - 32px),calc(var(--mp-vh,8.44px)*56))!important}' +
+                '.logging-view{min-height:min(30rem,calc(var(--mp-vh,8.44px)*55))!important;min-block-size:min(30rem,calc(var(--mp-vh,8.44px)*55))!important}';
               (document.head || document.documentElement).appendChild(st);
             }
 
