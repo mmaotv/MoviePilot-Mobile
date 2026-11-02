@@ -19,7 +19,7 @@
 
 <br>
 
-## ⬇️ 下载安装
+## 下载安装
 
 **[点这里下载最新版 APK](https://github.com/mmaotv/MoviePilot-Mobile/releases/latest)** ｜ [更新日志](CHANGELOG.md)
 
