@@ -32,6 +32,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.moviepilot.app.BuildConfig
 import com.moviepilot.app.data.model.AccountProfile
 import com.moviepilot.app.data.model.ServerProfile
 import com.moviepilot.app.data.model.displayServerUrl
@@ -45,6 +47,7 @@ import com.moviepilot.app.ui.theme.MpSurfaceVariant
 import com.moviepilot.app.ui.theme.MpTextPrimary
 import com.moviepilot.app.ui.theme.MpTextSecondary
 import com.moviepilot.app.ui.viewmodel.AuthViewModel
+import com.moviepilot.app.ui.viewmodel.UpdateViewModel
 
 /**
  * 唯一的原生功能面板：切换服务器 / 切换账号 / 退出登录。
@@ -60,6 +63,10 @@ fun SwitchPanel(
     var serverInput by remember { mutableStateOf("") }
     var inputError by remember { mutableStateOf<String?>(null) }
     val resolvedUrl = parseServerUrl(serverInput)
+
+    // 和 MainActivity 里的弹窗共用同一个 ViewModel 实例
+    val updateViewModel: UpdateViewModel = hiltViewModel()
+    val updateState by updateViewModel.ui.collectAsState()
 
     fun submitServer() {
         if (resolvedUrl == null) {
@@ -254,6 +261,33 @@ fun SwitchPanel(
                 }
 
                 Spacer(Modifier.height(8.dp))
+            }
+
+            HorizontalDivider(color = MpOutline.copy(alpha = 0.6f))
+
+            // ── 检查更新 ───────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !updateState.busy) { updateViewModel.checkManually() }
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "检查更新",
+                    fontSize = 14.sp,
+                    color = MpTextPrimary,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = when {
+                        updateState.checking -> "检查中…"
+                        updateState.hasNewVersion -> "有新版本 v${updateState.update?.versionName}"
+                        else -> "v${BuildConfig.VERSION_NAME}"
+                    },
+                    fontSize = 11.sp,
+                    color = if (updateState.hasNewVersion) MpPrimary else MpTextSecondary
+                )
             }
 
             HorizontalDivider(color = MpOutline.copy(alpha = 0.6f))

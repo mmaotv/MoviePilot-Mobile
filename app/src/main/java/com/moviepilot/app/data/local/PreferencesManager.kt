@@ -53,6 +53,12 @@ class PreferencesManager @Inject constructor(
         private val FAB_POS_Y = floatPreferencesKey("fab_pos_y")
         private val FAB_CUSTOMIZED = booleanPreferencesKey("fab_customized")
 
+        /** 上次成功检查更新的时间戳，避免每次回到前台都打 GitHub */
+        private val LAST_UPDATE_CHECK = stringPreferencesKey("mp_last_update_check")
+
+        /** 用户点了「跳过此版本」的版本号 */
+        private val SKIPPED_VERSION = stringPreferencesKey("mp_skipped_version")
+
         // ── v2 旧键，仅用于迁移 ──────────────────────────────────
         private val LEGACY_PROFILES = stringPreferencesKey("server_profiles")
         private val LEGACY_SERVER_URL = stringPreferencesKey("server_url")
@@ -300,6 +306,26 @@ class PreferencesManager @Inject constructor(
             } else null
         }.first()
     }.getOrNull()
+
+    // ── 更新检查 ──────────────────────────────────────────────────
+
+    suspend fun getLastUpdateCheck(): Long = runCatching {
+        context.dataStore.data.map { it[LAST_UPDATE_CHECK]?.toLongOrNull() ?: 0L }.first()
+    }.getOrDefault(0L)
+
+    suspend fun setLastUpdateCheck(timestamp: Long) {
+        context.dataStore.edit { it[LAST_UPDATE_CHECK] = timestamp.toString() }
+    }
+
+    suspend fun getSkippedVersion(): String? = runCatching {
+        context.dataStore.data.map { it[SKIPPED_VERSION] }.first()
+    }.getOrNull()
+
+    suspend fun setSkippedVersion(version: String?) {
+        context.dataStore.edit {
+            if (version.isNullOrBlank()) it.remove(SKIPPED_VERSION) else it[SKIPPED_VERSION] = version
+        }
+    }
 
     // ── v2 → v3 迁移 ─────────────────────────────────────────────
 

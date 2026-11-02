@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用内更新下载的 APK 放在 cacheDir/update/ 下，
+  通过 FileProvider 暴露给系统安装器（Android 7 起不允许 file:// 直传）。
+-->
+<paths>
+    <cache-path name="update" path="update/" />
+</paths>
